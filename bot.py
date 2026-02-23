@@ -22,7 +22,6 @@ WAITING_PROMO_CODE = range(8, 9)
 WAITING_PROMO_DAYS = range(9, 10)
 WAITING_PROMO_MINUTES = range(10, 11)
 WAITING_PROMO_ACTIVATIONS = range(11, 12)
-WAITING_GAME_CHOICE = range(12, 13)
 
 def load_users():
     try:
@@ -45,6 +44,17 @@ def load_promocodes():
 def save_promocodes(promocodes):
     with open('promocodes.json', 'w', encoding='utf-8') as f:
         json.dump(promocodes, f, ensure_ascii=False, indent=2)
+
+def load_favorites():
+    try:
+        with open('favorites.json', 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_favorites(favorites):
+    with open('favorites.json', 'w', encoding='utf-8') as f:
+        json.dump(favorites, f, ensure_ascii=False, indent=2)
 
 def load_all_players():
     all_players = []
@@ -178,7 +188,9 @@ def add_subscription_time(user_id, minutes):
             'referrals': 0,
             'referred_by': None,
             'last_wheel': None,
-            'last_random': None
+            'last_random': None,
+            'search_count': 0,
+            'notified_expiry': False
         }
     
     current_sub = users[user_id_str].get('subscription_end')
@@ -196,6 +208,7 @@ def add_subscription_time(user_id, minutes):
         new_sub = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
     
     users[user_id_str]['subscription_end'] = new_sub.isoformat()
+    users[user_id_str]['notified_expiry'] = False
     save_users(users)
 
 def add_subscription_days(user_id, days):
@@ -227,11 +240,80 @@ def can_use_random(user_id):
     delta = now - last
     return delta.total_seconds() >= 14 * 3600
 
+def increment_search_count(user_id):
+    users = load_users()
+    user_id_str = str(user_id)
+    if user_id_str in users:
+        users[user_id_str]['search_count'] = users[user_id_str].get('search_count', 0) + 1
+        save_users(users)
+
+def add_to_favorites(user_id, account):
+    favorites = load_favorites()
+    user_id_str = str(user_id)
+    
+    if user_id_str not in favorites:
+        favorites[user_id_str] = []
+    
+    account_copy = {
+        'nick': account['nick'],
+        'password': account['password'],
+        'ip': account['ip'],
+        'added_date': datetime.datetime.now().isoformat()
+    }
+    
+    for fav in favorites[user_id_str]:
+        if fav['nick'] == account['nick'] and fav['password'] == account['password']:
+            return False
+    
+    favorites[user_id_str].append(account_copy)
+    save_favorites(favorites)
+    return True
+
+def remove_from_favorites(user_id, account_index):
+    favorites = load_favorites()
+    user_id_str = str(user_id)
+    
+    if user_id_str in favorites and 0 <= account_index < len(favorites[user_id_str]):
+        del favorites[user_id_str][account_index]
+        save_favorites(favorites)
+        return True
+    return False
+
+def get_favorites(user_id):
+    favorites = load_favorites()
+    user_id_str = str(user_id)
+    return favorites.get(user_id_str, [])
+
+def get_top_by_referrals(limit=10):
+    users = load_users()
+    top_list = []
+    for user_id, data in users.items():
+        top_list.append({
+            'user_id': user_id,
+            'referrals': data.get('referrals', 0),
+            'username': data.get('username', 'нет')
+        })
+    top_list.sort(key=lambda x: x['referrals'], reverse=True)
+    return top_list[:limit]
+
+def get_top_by_searches(limit=10):
+    users = load_users()
+    top_list = []
+    for user_id, data in users.items():
+        top_list.append({
+            'user_id': user_id,
+            'searches': data.get('search_count', 0),
+            'username': data.get('username', 'нет')
+        })
+    top_list.sort(key=lambda x: x['searches'], reverse=True)
+    return top_list[:limit]
+
 def main_keyboard():
     return ReplyKeyboardMarkup([
         [KeyboardButton("🔍 Поиск игрока")],
         [KeyboardButton("👤 Мой профиль"), KeyboardButton("💰 Заработать")],
-        [KeyboardButton("🛒 Магазин"), KeyboardButton("🎮 Игры")]
+        [KeyboardButton("🛒 Магазин"), KeyboardButton("🎮 Игры")],
+        [KeyboardButton("⭐ Избранное"), KeyboardButton("🏆 Лидеры")]
     ], resize_keyboard=True)
 
 def search_type_keyboard():
@@ -266,6 +348,27 @@ def shop_keyboard():
         [KeyboardButton("🔙 Главное меню")]
     ], resize_keyboard=True)
 
+def leaders_keyboard():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("👥 Топ по рефералам")],
+        [KeyboardButton("🔍 Топ по поиску")],
+        [KeyboardButton("🔙 Главное меню")]
+    ], resize_keyboard=True)
+
+def favorites_inline_keyboard(account_index):
+    keyboard = [
+        [InlineKeyboardButton("❌ Удалить из избранного", callback_data=f"del_fav_{account_index}")],
+        [InlineKeyboardButton("🔙 Назад", callback_data="back_to_fav")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def favorites_list_keyboard(favorites_count):
+    keyboard = []
+    for i in range(favorites_count):
+        keyboard.append([InlineKeyboardButton(f"Аккаунт {i+1}", callback_data=f"show_fav_{i}")])
+    keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(keyboard)
+
 async def check_channel_sub(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
         member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
@@ -285,7 +388,9 @@ def update_user_activity(user_id, username=None):
             'username': username,
             'first_seen': datetime.datetime.now().isoformat(),
             'last_wheel': None,
-            'last_random': None
+            'last_random': None,
+            'search_count': 0,
+            'notified_expiry': False
         }
     else:
         users[user_id_str]['last_seen'] = datetime.datetime.now().isoformat()
@@ -293,6 +398,34 @@ def update_user_activity(user_id, username=None):
             users[user_id_str]['username'] = username
     save_users(users)
     return users[user_id_str]
+
+async def check_expiry_notifications(context: ContextTypes.DEFAULT_TYPE):
+    users = load_users()
+    now = datetime.datetime.now()
+    
+    for user_id_str, data in users.items():
+        expiry = data.get('subscription_end')
+        if expiry and expiry != 'forever' and not data.get('notified_expiry', False):
+            try:
+                expiry_date = datetime.datetime.fromisoformat(expiry)
+                delta = expiry_date - now
+                
+                if delta.total_seconds() <= 24 * 3600 and delta.total_seconds() > 0:
+                    hours = int(delta.seconds // 3600)
+                    minutes = int((delta.seconds % 3600) // 60)
+                    
+                    await context.bot.send_message(
+                        int(user_id_str),
+                        f"⚠️ <b>Внимание!</b>\n\n"
+                        f"Твоя подписка закончится через {hours} ч. {minutes} мин.\n"
+                        f"Продли подписку в магазине, чтобы не потерять доступ к поиску!",
+                        parse_mode=ParseMode.HTML
+                    )
+                    
+                    users[user_id_str]['notified_expiry'] = True
+                    save_users(users)
+            except:
+                pass
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -335,14 +468,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del context.user_data['referred_by']
         
         await update.message.reply_text(
-            f"🚀 Приветствуем в нашем боте v0.9.1!\n\n"
+            f"🚀 Приветствуем в нашем боте v0.9.2!\n\n"
             f"Мы долго готовили данное обновление!\n\n"
             f"📋 Доступные функции:\n"
             f"• 🔍 Поиск игроков по базе данных\n"
             f"• 👤 Личный профиль с статистикой\n"
             f"• 💰 Заработок подписки за рефералов\n"
             f"• 🛒 Магазин подписок\n"
-            f"• 🎮 Игры и развлечения\n\n"
+            f"• 🎮 Игры и развлечения\n"
+            f"• ⭐ Избранное для сохранения аккаунтов\n"
+            f"• 🏆 Лидеры бота\n\n"
             f"Выбирай функцию кнопками ниже:",
             reply_markup=main_keyboard()
         )
@@ -356,14 +491,16 @@ async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if is_subscribed:
         await query.edit_message_text(
-            f"🚀 Приветствуем в нашем боте v0.9.1!\n\n"
+            f"🚀 Приветствуем в нашем боте v0.9.2!\n\n"
             f"Мы долго готовили данное обновление!\n\n"
             f"📋 Доступные функции:\n"
             f"• 🔍 Поиск игроков по базе данных\n"
             f"• 👤 Личный профиль с статистикой\n"
             f"• 💰 Заработок подписки за рефералов\n"
             f"• 🛒 Магазин подписок\n"
-            f"• 🎮 Игры и развлечения\n\n"
+            f"• 🎮 Игры и развлечения\n"
+            f"• ⭐ Избранное для сохранения аккаунтов\n"
+            f"• 🏆 Лидеры бота\n\n"
             f"Выбирай функцию кнопками ниже:"
         )
         await query.message.reply_text("👇 Твои кнопки:", reply_markup=main_keyboard())
@@ -395,13 +532,17 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
+    favorites = get_favorites(user_id)
+    
     text = (
         f"👤 <b>Твой профиль</b>\n\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"👤 Username: @{username if username else 'нет'}\n"
         f"📅 В боте: {days_in_bot} дн.\n"
         f"🎫 Подписка: {sub_status}\n"
-        f"👥 Рефералов: {user_data.get('referrals', 0)}\n\n"
+        f"👥 Рефералов: {user_data.get('referrals', 0)}\n"
+        f"🔍 Поисков: {user_data.get('search_count', 0)}\n"
+        f"⭐ В избранном: {len(favorites)}\n\n"
         f"🔗 Твоя реферальная ссылка:\n"
         f"<code>{ref_link}</code>"
     )
@@ -460,10 +601,23 @@ async def process_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not results:
         await update.message.reply_text(f"❌ На IP {ip} ничего нет", reply_markup=main_keyboard())
     else:
+        increment_search_count(update.effective_user.id)
         text = f"🌐 IP: {ip}\n\n"
-        for player in results:
-            text += f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}\n━━━━━━━━━━━━━━\n"
-        await update.message.reply_text(text, reply_markup=main_keyboard())
+        
+        keyboard_buttons = []
+        for i, player in enumerate(results):
+            text += f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}\n"
+            keyboard_buttons.append([InlineKeyboardButton(f"⭐ Сохранить {player['nick']}", callback_data=f"save_{i}_{ip}")])
+            text += "━━━━━━━━━━━━━━\n"
+        
+        keyboard_buttons.append([InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")])
+        reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+        
+        context.user_data['last_results'] = results
+        context.user_data['last_search_type'] = 'ip'
+        context.user_data['last_search_value'] = ip
+        
+        await update.message.reply_text(text, reply_markup=reply_markup)
     
     return ConversationHandler.END
 
@@ -482,12 +636,26 @@ async def process_nick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not results:
         await update.message.reply_text(f"❌ Ник начинающийся на '{nick_part}' не найден", reply_markup=main_keyboard())
     else:
+        increment_search_count(update.effective_user.id)
         text = f"👤 Ники начинающиеся на '{nick_part}':\n\n"
-        for player in results[:10]:
-            text += f"👤 {player['nick']}\n🔑 {player['password']}\n━━━━━━━━━━━━━━\n"
+        
+        keyboard_buttons = []
+        for i, player in enumerate(results[:10]):
+            text += f"👤 {player['nick']}\n🔑 {player['password']}\n"
+            keyboard_buttons.append([InlineKeyboardButton(f"⭐ Сохранить {player['nick']}", callback_data=f"save_{i}_{nick_part}")])
+            text += "━━━━━━━━━━━━━━\n"
+        
         if len(results) > 10:
             text += f"\n... и ещё {len(results)-10}"
-        await update.message.reply_text(text, reply_markup=main_keyboard())
+        
+        keyboard_buttons.append([InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")])
+        reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+        
+        context.user_data['last_results'] = results[:10]
+        context.user_data['last_search_type'] = 'nick'
+        context.user_data['last_search_value'] = nick_part
+        
+        await update.message.reply_text(text, reply_markup=reply_markup)
     
     return ConversationHandler.END
 
@@ -506,14 +674,178 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not results:
         await update.message.reply_text(f"❌ Пароль содержащий '{password_part}' не найден", reply_markup=main_keyboard())
     else:
+        increment_search_count(update.effective_user.id)
         text = f"🔑 Пароли содержащие '{password_part}':\n\n"
-        for player in results[:10]:
-            text += f"👤 {player['nick']}\n🔑 {player['password']}\n━━━━━━━━━━━━━━\n"
+        
+        keyboard_buttons = []
+        for i, player in enumerate(results[:10]):
+            text += f"👤 {player['nick']}\n🔑 {player['password']}\n"
+            keyboard_buttons.append([InlineKeyboardButton(f"⭐ Сохранить {player['nick']}", callback_data=f"save_{i}_{password_part}")])
+            text += "━━━━━━━━━━━━━━\n"
+        
         if len(results) > 10:
             text += f"\n... и ещё {len(results)-10}"
-        await update.message.reply_text(text, reply_markup=main_keyboard())
+        
+        keyboard_buttons.append([InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")])
+        reply_markup = InlineKeyboardMarkup(keyboard_buttons)
+        
+        context.user_data['last_results'] = results[:10]
+        context.user_data['last_search_type'] = 'password'
+        context.user_data['last_search_value'] = password_part
+        
+        await update.message.reply_text(text, reply_markup=reply_markup)
     
     return ConversationHandler.END
+
+async def save_account_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    index = int(data[1])
+    search_value = data[2]
+    
+    results = context.user_data.get('last_results', [])
+    
+    if index < len(results):
+        account = results[index]
+        user_id = query.from_user.id
+        
+        if add_to_favorites(user_id, account):
+            await query.edit_message_text(
+                f"✅ Аккаунт <b>{account['nick']}</b> добавлен в избранное!\n\n"
+                f"👤 Ник: {account['nick']}\n"
+                f"🔑 Пароль: {account['password']}\n"
+                f"🌐 IP: {account['ip']}",
+                parse_mode=ParseMode.HTML,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⭐ Перейти в избранное", callback_data="show_favorites")]])
+            )
+        else:
+            await query.edit_message_text(
+                f"⚠️ Аккаунт <b>{account['nick']}</b> уже есть в избранном!",
+                parse_mode=ParseMode.HTML
+            )
+
+async def show_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        message = query.message
+    else:
+        message = update.message
+    
+    favorites = get_favorites(user_id)
+    
+    if not favorites:
+        text = "⭐ <b>Избранное</b>\n\nУ тебя пока нет сохраненных аккаунтов.\n\nНайди аккаунты через поиск и сохраняй их!"
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]])
+        
+        if update.callback_query:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        else:
+            await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_keyboard())
+        return
+    
+    text = f"⭐ <b>Избранное</b>\n\nВсего аккаунтов: {len(favorites)}\n\nВыбери аккаунт:"
+    keyboard = favorites_list_keyboard(len(favorites))
+    
+    if update.callback_query:
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    else:
+        await message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+async def show_favorite_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    index = int(data[2])
+    
+    user_id = query.from_user.id
+    favorites = get_favorites(user_id)
+    
+    if index < len(favorites):
+        account = favorites[index]
+        added_date = datetime.datetime.fromisoformat(account['added_date']).strftime('%d.%m.%Y %H:%M')
+        
+        text = (
+            f"⭐ <b>Аккаунт {index + 1}</b>\n\n"
+            f"👤 Ник: {account['nick']}\n"
+            f"🔑 Пароль: {account['password']}\n"
+            f"🌐 IP: {account['ip']}\n"
+            f"📅 Добавлен: {added_date}"
+        )
+        
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=favorites_inline_keyboard(index))
+
+async def delete_favorite_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split('_')
+    index = int(data[2])
+    
+    user_id = query.from_user.id
+    
+    if remove_from_favorites(user_id, index):
+        await query.edit_message_text(
+            "✅ Аккаунт удален из избранного!",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⭐ Показать избранное", callback_data="show_favorites")]])
+        )
+    else:
+        await query.edit_message_text("❌ Ошибка при удалении аккаунта!")
+
+async def back_to_favorites_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await show_favorites(update, context)
+
+async def leaders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_subscribed = await check_channel_sub(user_id, context)
+    
+    if not is_subscribed:
+        await start(update, context)
+        return
+    
+    text = (
+        f"🏆 <b>Лидеры бота</b>\n\n"
+        f"Выбери категорию:"
+    )
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=leaders_keyboard())
+
+async def top_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    top = get_top_by_referrals(10)
+    
+    text = "👥 <b>Топ по рефералам</b>\n\n"
+    
+    if not top or top[0]['referrals'] == 0:
+        text += "Пока нет рефералов у пользователей.\nСтань первым!"
+    else:
+        for i, user in enumerate(top, 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "👤"
+            username = f"@{user['username']}" if user['username'] != 'нет' else f"ID: {user['user_id']}"
+            text += f"{medal} {i}. {username} — {user['referrals']} реф.\n"
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=leaders_keyboard())
+
+async def top_searches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    top = get_top_by_searches(10)
+    
+    text = "🔍 <b>Топ по поиску</b>\n\n"
+    
+    if not top or top[0]['searches'] == 0:
+        text += "Пока никто не искал аккаунты.\nБудь первым!"
+    else:
+        for i, user in enumerate(top, 1):
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "👤"
+            username = f"@{user['username']}" if user['username'] != 'нет' else f"ID: {user['user_id']}"
+            text += f"{medal} {i}. {username} — {user['searches']} поисков\n"
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=leaders_keyboard())
 
 async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -741,7 +1073,10 @@ async def handle_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🌐 IP: {account['ip']}"
             )
             
-            await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=games_keyboard())
+            keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("⭐ Сохранить", callback_data=f"save_random")]])
+            context.user_data['last_random_account'] = account
+            
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         else:
             await update.message.reply_text(
                 "❌ База данных аккаунтов пуста!",
@@ -760,6 +1095,30 @@ async def handle_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     return ConversationHandler.END
+
+async def save_random_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    account = context.user_data.get('last_random_account')
+    if account:
+        user_id = query.from_user.id
+        if add_to_favorites(user_id, account):
+            await query.edit_message_text(
+                f"✅ Аккаунт <b>{account['nick']}</b> добавлен в избранное!",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            await query.edit_message_text(
+                f"⚠️ Аккаунт <b>{account['nick']}</b> уже есть в избранном!",
+                parse_mode=ParseMode.HTML
+            )
+
+async def back_to_main_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("🔙 Главное меню:")
+    await query.message.reply_text("👇 Твои кнопки:", reply_markup=main_keyboard())
 
 async def process_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🔙 Отмена":
@@ -824,19 +1183,25 @@ async def admin_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load_users()
     active_subs = 0
     total_refs = 0
+    total_searches = 0
     
     for uid, data in users.items():
         if check_sub_expiry(int(uid)):
             active_subs += 1
         total_refs += data.get('referrals', 0)
+        total_searches += data.get('search_count', 0)
     
     promocodes = load_promocodes()
+    favorites = load_favorites()
+    total_favorites = sum(len(accs) for accs in favorites.values())
     
     text = (
         f"📊 <b>Статистика бота</b>\n\n"
         f"👥 Всего пользователей: {len(users)}\n"
         f"✅ Активных подписок: {active_subs}\n"
         f"👥 Всего рефералов: {total_refs}\n"
+        f"🔍 Всего поисков: {total_searches}\n"
+        f"⭐ Всего в избранном: {total_favorites}\n"
         f"📁 Игроков в базе: {len(PLAYERS_DB)}\n"
         f"🎫 Промокодов: {len(promocodes)}"
     )
@@ -1046,6 +1411,14 @@ async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await games(update, context)
     elif text == "🔍 Поиск игрока":
         await search_player(update, context)
+    elif text == "⭐ Избранное":
+        await show_favorites(update, context)
+    elif text == "🏆 Лидеры":
+        await leaders(update, context)
+    elif text == "👥 Топ по рефералам":
+        await top_referrals(update, context)
+    elif text == "🔍 Топ по поиску":
+        await top_searches(update, context)
     else:
         await update.message.reply_text("👇 Используй кнопки в меню", reply_markup=main_keyboard())
 
@@ -1053,8 +1426,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
     return ConversationHandler.END
 
+async def job_check_expiry(context: ContextTypes.DEFAULT_TYPE):
+    await check_expiry_notifications(context)
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
+    
+    job_queue = app.job_queue
+    job_queue.run_repeating(job_check_expiry, interval=3600, first=10)
     
     search_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("🔍 Поиск игрока"), search_player)],
@@ -1124,6 +1503,13 @@ def main():
     app.add_handler(admin_rass_conv)
     app.add_handler(admin_promo_conv)
     app.add_handler(CallbackQueryHandler(check_sub_callback, pattern="^check_sub$"))
+    app.add_handler(CallbackQueryHandler(save_account_callback, pattern="^save_"))
+    app.add_handler(CallbackQueryHandler(save_random_callback, pattern="^save_random$"))
+    app.add_handler(CallbackQueryHandler(show_favorites, pattern="^show_favorites$"))
+    app.add_handler(CallbackQueryHandler(show_favorite_callback, pattern="^show_fav_"))
+    app.add_handler(CallbackQueryHandler(delete_favorite_callback, pattern="^del_fav_"))
+    app.add_handler(CallbackQueryHandler(back_to_favorites_callback, pattern="^back_to_fav$"))
+    app.add_handler(CallbackQueryHandler(back_to_main_callback, pattern="^back_to_main$"))
     app.add_handler(search_conv)
     app.add_handler(ref_conv)
     app.add_handler(buy_conv)
@@ -1132,7 +1518,8 @@ def main():
     app.add_handler(MessageHandler(filters.Text("🎲 Рандомный аккаунт"), handle_games))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
     
-    print("🚀 Бот запущен с полным функционалом v0.9.1!")
+    print("🚀 Бот запущен с полным функционалом v0.9.2!")
+    print("✅ Добавлены новые функции: Избранное, Лидеры, Уведомления")
     app.run_polling()
 
 if __name__ == "__main__":
