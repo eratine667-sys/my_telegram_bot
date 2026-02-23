@@ -40,13 +40,23 @@ def main_keyboard():
     return keyboard
 
 def search_type_keyboard():
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [types.InlineKeyboardButton(text="🌐 Поиск по IP", callback_data="search_ip")],
-            [types.InlineKeyboardButton(text="👤 Поиск по нику", callback_data="search_nick")],
-            [types.InlineKeyboardButton(text="🔑 Поиск по паролю", callback_data="search_password")],
-            [types.InlineKeyboardButton(text="🔙 Главное меню", callback_data="back_to_main")]
-        ]
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="🌐 Поиск по IP")],
+            [types.KeyboardButton(text="👤 Поиск по нику")],
+            [types.KeyboardButton(text="🔑 Поиск по паролю")],
+            [types.KeyboardButton(text="🔙 Главное меню")]
+        ],
+        resize_keyboard=True
+    )
+    return keyboard
+
+def cancel_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(
+        keyboard=[
+            [types.KeyboardButton(text="🔙 Отмена")]
+        ],
+        resize_keyboard=True
     )
     return keyboard
 
@@ -56,36 +66,19 @@ async def cmd_start(message: types.Message, state: FSMContext):
     is_subscribed = await check_subscription(user_id)
     
     if not is_subscribed:
-        keyboard = types.InlineKeyboardMarkup(
-            inline_keyboard=[
-                [types.InlineKeyboardButton(text="📢 Подписаться на канал", url="https://t.me/HelpimServer")],
-                [types.InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub")]
-            ]
-        )
         await message.answer(
-            f"👋 Привет, {message.from_user.first_name}!\n\nДля использования бота необходимо подписаться на наш канал:",
-            reply_markup=keyboard
+            f"👋 Привет, {message.from_user.first_name}!\n\n"
+            f"🔒 Для доступа к боту подпишись на канал: @HelpimServer\n\n"
+            f"После подписки нажми /start снова",
+            reply_markup=types.ReplyKeyboardRemove()
         )
     else:
         await state.clear()
         await message.answer(
-            f"✅ Спасибо за подписку, {message.from_user.first_name}!\n\nВыбери действие:",
+            f"✅ Спасибо за подписку, {message.from_user.first_name}!\n\n"
+            f"Выбери действие:",
             reply_markup=main_keyboard()
         )
-
-@dp.callback_query(lambda c: c.data == "check_sub")
-async def process_sub_check(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    is_subscribed = await check_subscription(user_id)
-    
-    if is_subscribed:
-        await callback.message.delete()
-        await callback.message.answer(
-            f"✅ Отлично, {callback.from_user.first_name}! Подписка подтверждена.\n\nВыбери действие:",
-            reply_markup=main_keyboard()
-        )
-    else:
-        await callback.answer("❌ Ты ещё не подписался!", show_alert=True)
 
 @dp.message(lambda message: message.text == "🔍 Поиск игрока")
 async def search_player(message: types.Message, state: FSMContext):
@@ -102,50 +95,51 @@ async def search_player(message: types.Message, state: FSMContext):
     )
     await state.set_state(SearchStates.waiting_for_search_type)
 
-@dp.callback_query(lambda c: c.data == "back_to_main")
-async def back_to_main(callback: types.CallbackQuery, state: FSMContext):
+@dp.message(lambda message: message.text == "🔙 Главное меню")
+async def back_to_main(message: types.Message, state: FSMContext):
     await state.clear()
-    await callback.message.delete()
-    await callback.message.answer(
+    await message.answer(
         "🔙 Главное меню:",
         reply_markup=main_keyboard()
     )
 
-@dp.callback_query(lambda c: c.data == "search_ip")
-async def search_ip(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.message.answer(
-        "🌐 Введите IP-адрес для поиска:",
-        reply_markup=types.ReplyKeyboardMarkup(
-            keyboard=[[types.KeyboardButton(text="🔙 Отмена")]],
-            resize_keyboard=True
+@dp.message(SearchStates.waiting_for_search_type)
+async def handle_search_type(message: types.Message, state: FSMContext):
+    text = message.text
+    
+    if text == "🌐 Поиск по IP":
+        await message.answer(
+            "🌐 Введите IP-адрес для поиска:",
+            reply_markup=cancel_keyboard()
         )
-    )
-    await state.set_state(SearchStates.waiting_for_ip)
-
-@dp.callback_query(lambda c: c.data == "search_nick")
-async def search_nick(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.message.answer(
-        "👤 Введите ник игрока для поиска:",
-        reply_markup=types.ReplyKeyboardMarkup(
-            keyboard=[[types.KeyboardButton(text="🔙 Отмена")]],
-            resize_keyboard=True
+        await state.set_state(SearchStates.waiting_for_ip)
+    
+    elif text == "👤 Поиск по нику":
+        await message.answer(
+            "👤 Введите ник игрока для поиска:",
+            reply_markup=cancel_keyboard()
         )
-    )
-    await state.set_state(SearchStates.waiting_for_nick)
-
-@dp.callback_query(lambda c: c.data == "search_password")
-async def search_password(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.delete()
-    await callback.message.answer(
-        "🔑 Введите пароль для поиска:",
-        reply_markup=types.ReplyKeyboardMarkup(
-            keyboard=[[types.KeyboardButton(text="🔙 Отмена")]],
-            resize_keyboard=True
+        await state.set_state(SearchStates.waiting_for_nick)
+    
+    elif text == "🔑 Поиск по паролю":
+        await message.answer(
+            "🔑 Введите пароль для поиска:",
+            reply_markup=cancel_keyboard()
         )
-    )
-    await state.set_state(SearchStates.waiting_for_password)
+        await state.set_state(SearchStates.waiting_for_password)
+    
+    elif text == "🔙 Главное меню":
+        await state.clear()
+        await message.answer(
+            "🔙 Главное меню:",
+            reply_markup=main_keyboard()
+        )
+    
+    else:
+        await message.answer(
+            "❌ Используй кнопки меню!",
+            reply_markup=search_type_keyboard()
+        )
 
 @dp.message(SearchStates.waiting_for_ip)
 async def process_ip(message: types.Message, state: FSMContext):
@@ -223,12 +217,12 @@ async def handle_all(message: types.Message, state: FSMContext):
     current_state = await state.get_state()
     if current_state is None:
         await message.answer(
-            "Используй кнопки в меню 👇",
+            "👇 Используй кнопки в меню",
             reply_markup=main_keyboard()
         )
 
 async def main():
-    print("🚀 Бот запущен с поиском игроков!")
+    print("🚀 Бот запущен (все кнопки клавиатурные)!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
