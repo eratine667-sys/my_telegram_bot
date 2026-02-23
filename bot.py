@@ -12,14 +12,12 @@ ADMIN_ID = 7878666092
 if not BOT_TOKEN:
     raise ValueError("НЕТ ТОКЕНА! Добавь BOT_TOKEN в переменные окружения")
 
-# Состояния
 WAITING_SEARCH_TYPE, WAITING_IP, WAITING_NICK, WAITING_PASSWORD = range(4)
 WAITING_REFERRAL_AMOUNT = range(4, 5)
 WAITING_SUB_DAYS = range(5, 6)
 WAITING_ADMIN_SUB = range(6, 7)
 WAITING_RASS = range(7, 8)
 
-# Загрузка пользователей
 def load_users():
     try:
         with open('users.json', 'r', encoding='utf-8') as f:
@@ -31,11 +29,9 @@ def save_users(users):
     with open('users.json', 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=2)
 
-# Загрузка базы игроков
 def load_all_players():
     all_players = []
     data_dir = '/app/data'
-    
     try:
         for i in range(1, 8):
             file_path = os.path.join(data_dir, f'players-{i}.json')
@@ -51,7 +47,6 @@ def load_all_players():
                         all_players.append(player)
     except Exception as e:
         print(f"Ошибка загрузки: {e}")
-    
     return all_players
 
 PLAYERS_DB = load_all_players()
@@ -86,8 +81,7 @@ def calculate_sub_price(days):
     elif days == 14: return 650
     elif days == 30: return 950
     elif days == 9999: return 3150
-    else:
-        return days * 44
+    else: return days * 44
 
 def calculate_ref_bonus(refs):
     if refs >= 100: return "30 дней"
@@ -100,28 +94,35 @@ def calculate_ref_bonus(refs):
         return f"{minutes} минут"
 
 def days_until_expiry(expiry_date_str):
-    if not expiry_date_str:
+    if not expiry_date_str or expiry_date_str == 'forever':
+        return 9999
+    try:
+        expiry = datetime.datetime.fromisoformat(expiry_date_str)
+        now = datetime.datetime.now()
+        delta = expiry - now
+        return max(0, delta.days)
+    except:
         return 0
-    expiry = datetime.datetime.fromisoformat(expiry_date_str)
-    now = datetime.datetime.now()
-    delta = expiry - now
-    return max(0, delta.days)
 
 def check_sub_expiry(user_id):
     users = load_users()
     user_id_str = str(user_id)
     if user_id_str in users:
         expiry = users[user_id_str].get('subscription_end')
-        if expiry:
-            expiry_date = datetime.datetime.fromisoformat(expiry)
-            if expiry_date < datetime.datetime.now():
-                users[user_id_str]['subscription_end'] = None
-                save_users(users)
-                return False
+        if expiry == 'forever':
             return True
+        if expiry:
+            try:
+                expiry_date = datetime.datetime.fromisoformat(expiry)
+                if expiry_date < datetime.datetime.now():
+                    users[user_id_str]['subscription_end'] = None
+                    save_users(users)
+                    return False
+                return True
+            except:
+                return False
     return False
 
-# Клавиатуры
 def main_keyboard():
     return ReplyKeyboardMarkup([
         [KeyboardButton("🔍 Поиск игрока")],
@@ -142,24 +143,17 @@ def cancel_keyboard():
     )
 
 def earn_inline_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("💰 Заработать подписку", callback_data="earn_sub")]
-    ]
+    keyboard = [[InlineKeyboardButton("💰 Заработать подписку", callback_data="earn_sub")]]
     return InlineKeyboardMarkup(keyboard)
 
 def exchange_inline_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("🔄 Обменять рефералов", callback_data="exchange_refs")]
-    ]
+    keyboard = [[InlineKeyboardButton("🔄 Обменять рефералов", callback_data="exchange_refs")]]
     return InlineKeyboardMarkup(keyboard)
 
 def shop_inline_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("🎁 Приобрести подписку", callback_data="buy_sub")]
-    ]
+    keyboard = [[InlineKeyboardButton("🎁 Приобрести подписку", callback_data="buy_sub")]]
     return InlineKeyboardMarkup(keyboard)
 
-# Проверка подписки на канал
 async def check_channel_sub(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
         member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
@@ -167,11 +161,9 @@ async def check_channel_sub(user_id: int, context: ContextTypes.DEFAULT_TYPE) ->
     except:
         return False
 
-# Обновление активности пользователя
 def update_user_activity(user_id, username=None):
     users = load_users()
     user_id_str = str(user_id)
-    
     if user_id_str not in users:
         users[user_id_str] = {
             'joined_date': datetime.datetime.now().isoformat(),
@@ -185,26 +177,20 @@ def update_user_activity(user_id, username=None):
         users[user_id_str]['last_seen'] = datetime.datetime.now().isoformat()
         if username:
             users[user_id_str]['username'] = username
-    
     save_users(users)
     return users[user_id_str]
 
-# Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username
     first_name = update.effective_user.first_name
     
-    # Проверка реферала
     if context.args and len(context.args) > 0:
         referrer_id = context.args[0]
-        users = load_users()
         if referrer_id.isdigit() and int(referrer_id) != user_id:
-            # Проверяем подписку реферала на канал позже
             context.user_data['referred_by'] = referrer_id
     
     update_user_activity(user_id, username)
-    
     is_subscribed = await check_channel_sub(user_id, context)
     
     if not is_subscribed:
@@ -219,17 +205,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=keyboard
         )
     else:
-        # Проверяем реферала если есть
         if 'referred_by' in context.user_data:
             referrer_id = context.user_data['referred_by']
             users = load_users()
             if str(referrer_id) in users:
                 users[str(referrer_id)]['referrals'] = users[str(referrer_id)].get('referrals', 0) + 1
                 save_users(users)
-                await context.bot.send_message(
-                    referrer_id,
-                    f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
-                )
+                try:
+                    await context.bot.send_message(
+                        int(referrer_id),
+                        f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
+                    )
+                except:
+                    pass
             del context.user_data['referred_by']
         
         await update.message.reply_text(
@@ -245,11 +233,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     return ConversationHandler.END
 
-# Проверка подписки
 async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     user_id = query.from_user.id
     is_subscribed = await check_channel_sub(user_id, context)
     
@@ -268,7 +254,55 @@ async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await query.answer("❌ Ты ещё не подписался!", show_alert=True)
 
-# Поиск игрока
+async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username
+    first_name = update.effective_user.first_name
+    
+    is_subscribed = await check_channel_sub(user_id, context)
+    if not is_subscribed:
+        await start(update, context)
+        return
+    
+    users = load_users()
+    user_id_str = str(user_id)
+    
+    if user_id_str not in users:
+        user_data = update_user_activity(user_id, username)
+    else:
+        user_data = users[user_id_str]
+    
+    joined = datetime.datetime.fromisoformat(user_data.get('joined_date', datetime.datetime.now().isoformat()))
+    days_in_bot = (datetime.datetime.now() - joined).days
+    
+    sub_end = user_data.get('subscription_end')
+    if sub_end == 'forever':
+        sub_status = "✅ Навсегда"
+    elif sub_end:
+        sub_days = days_until_expiry(sub_end)
+        if sub_days > 0 and sub_days < 9999:
+            sub_status = f"✅ Активна (осталось {sub_days} дн.)"
+        else:
+            sub_status = "❌ Нет подписки"
+    else:
+        sub_status = "❌ Нет подписки"
+    
+    bot_username = (await context.bot.get_me()).username
+    ref_link = f"https://t.me/{bot_username}?start={user_id}"
+    
+    text = (
+        f"👤 <b>Твой профиль</b>\n\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"👤 Username: @{username if username else 'нет'}\n"
+        f"📅 В боте: {days_in_bot} дн.\n"
+        f"🎫 Подписка: {sub_status}\n"
+        f"👥 Рефералов: {user_data.get('referrals', 0)}\n\n"
+        f"🔗 Твоя реферальная ссылка:\n"
+        f"<code>{ref_link}</code>"
+    )
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_keyboard())
+
 async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_subscribed = await check_channel_sub(user_id, context)
@@ -280,8 +314,7 @@ async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     has_sub = check_sub_expiry(user_id)
     if not has_sub:
         await update.message.reply_text(
-            "❌ У тебя нет активной подписки!\n"
-            "Купи или заработай подписку в магазине.",
+            "❌ У тебя нет активной подписки!\nКупи или заработай подписку в магазине.",
             reply_markup=main_keyboard()
         )
         return ConversationHandler.END
@@ -377,51 +410,6 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
-# Мой профиль
-async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    username = update.effective_user.username
-    first_name = update.effective_user.first_name
-    
-    is_subscribed = await check_channel_sub(user_id, context)
-    if not is_subscribed:
-        await start(update, context)
-        return
-    
-    users = load_users()
-    user_id_str = str(user_id)
-    
-    if user_id_str not in users:
-        user_data = update_user_activity(user_id, username)
-    else:
-        user_data = users[user_id_str]
-    
-    joined = datetime.datetime.fromisoformat(user_data.get('joined_date', datetime.datetime.now().isoformat()))
-    days_in_bot = (datetime.datetime.now() - joined).days
-    
-    sub_end = user_data.get('subscription_end')
-    if sub_end:
-        sub_days = days_until_expiry(sub_end)
-        sub_status = f"✅ Активна (осталось {sub_days} дн.)"
-    else:
-        sub_status = "❌ Нет подписки"
-    
-    ref_link = f"https://t.me/{(await context.bot.get_me()).username}?start={user_id}"
-    
-    text = (
-        f"👤 <b>Твой профиль</b>\n\n"
-        f"🆔 ID: <code>{user_id}</code>\n"
-        f"👤 Username: @{username if username else 'нет'}\n"
-        f"📅 В боте: {days_in_bot} дн.\n"
-        f"🎫 Подписка: {sub_status}\n"
-        f"👥 Рефералов: {user_data.get('referrals', 0)}\n\n"
-        f"🔗 Твоя реферальная ссылка:\n"
-        f"<code>{ref_link}</code>"
-    )
-    
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_keyboard())
-
-# Заработать
 async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_subscribed = await check_channel_sub(user_id, context)
@@ -431,8 +419,12 @@ async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     users = load_users()
-    referrals = users.get(str(user_id), {}).get('referrals', 0)
+    user_data = users.get(str(user_id), {})
+    referrals = user_data.get('referrals', 0)
     bonus = calculate_ref_bonus(referrals)
+    
+    bot_username = (await context.bot.get_me()).username
+    ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
     text = (
         f"💰 <b>Заработок подписки</b>\n\n"
@@ -444,7 +436,9 @@ async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"• 35 рефералов → 1 день\n"
         f"• 50 рефералов → 7 дней\n"
         f"• 100 рефералов → 30 дней\n\n"
-        f"<i>Дополнительно: можно обменять любое количество рефералов (1 реферал = 2 минуты)</i>"
+        f"<i>Дополнительно: можно обменять любое количество рефералов (1 реферал = 2 минуты)</i>\n\n"
+        f"🔗 Твоя реферальная ссылка:\n"
+        f"<code>{ref_link}</code>"
     )
     
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=earn_inline_keyboard())
@@ -491,13 +485,15 @@ async def process_referral_exchange(update: Update, context: ContextTypes.DEFAUL
         users[str(user_id)]['referrals'] = referrals - amount
         
         current_sub = user_data.get('subscription_end')
-        if current_sub:
+        if current_sub == 'forever':
+            new_sub = 'forever'
+        elif current_sub:
             sub_date = datetime.datetime.fromisoformat(current_sub)
-            new_sub = sub_date + datetime.timedelta(minutes=minutes)
+            new_sub = (sub_date + datetime.timedelta(minutes=minutes)).isoformat()
         else:
-            new_sub = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+            new_sub = (datetime.datetime.now() + datetime.timedelta(minutes=minutes)).isoformat()
         
-        users[str(user_id)]['subscription_end'] = new_sub.isoformat()
+        users[str(user_id)]['subscription_end'] = new_sub
         save_users(users)
         
         await update.message.reply_text(
@@ -510,7 +506,6 @@ async def process_referral_exchange(update: Update, context: ContextTypes.DEFAUL
     
     return ConversationHandler.END
 
-# Магазин
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_subscribed = await check_channel_sub(user_id, context)
@@ -538,7 +533,7 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == "buy_sub":
         await query.edit_message_text(
-            "💬 Сколько дней подписки нужно?",
+            "💬 Сколько дней подписки нужно? (9999 для навсегда)",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_shop")]])
         )
         return WAITING_SUB_DAYS
@@ -551,26 +546,22 @@ async def process_sub_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return WAITING_SUB_DAYS
         
         price = calculate_sub_price(days)
+        days_text = "навсегда" if days == 9999 else f"{days} дней"
         
         text = (
             f"💰 <b>Заказ подписки</b>\n\n"
-            f"📅 Дней: {days}\n"
+            f"📅 Дней: {days_text}\n"
             f"💵 Цена: {price}₽\n\n"
             f"<b>Отлично! Для приобретения подписки напиши админу:</b>\n"
             f"👤 @loqin_win\n\n"
-            f"<code>Привет! Хочу купить подписку на {days} дней за {price}₽</code>"
+            f"<code>Привет! Хочу купить подписку на {days_text} за {price}₽</code>"
         )
         
         await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=main_keyboard())
         
-        # Уведомление админу
         await context.bot.send_message(
             ADMIN_ID,
-            f"🛒 Новый заказ!\n"
-            f"От: {update.effective_user.first_name} (@{update.effective_user.username})\n"
-            f"ID: {update.effective_user.id}\n"
-            f"Дней: {days}\n"
-            f"Цена: {price}₽"
+            f"🛒 Новый заказ!\nОт: {update.effective_user.first_name} (@{update.effective_user.username})\nID: {update.effective_user.id}\nДней: {days_text}\nЦена: {price}₽"
         )
         
     except ValueError:
@@ -579,7 +570,6 @@ async def process_sub_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
-# Админка
 async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ У тебя нет прав администратора!")
@@ -605,7 +595,7 @@ async def admin_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for uid, data in users.items():
         if data.get('subscription_end'):
-            if days_until_expiry(data['subscription_end']) > 0:
+            if data['subscription_end'] == 'forever' or days_until_expiry(data['subscription_end']) > 0:
                 active_subs += 1
         total_refs += data.get('referrals', 0)
     
@@ -677,9 +667,10 @@ async def process_admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Подписка выдана пользователю {user_id}")
         
         try:
+            days_text = "навсегда" if days == 9999 else f"{days} дней"
             await context.bot.send_message(
                 int(user_id),
-                f"🎉 Вам выдана подписка на {days if days != 9999 else 'навсегда'}!"
+                f"🎉 Вам выдана подписка на {days_text}!"
             )
         except:
             pass
@@ -718,7 +709,6 @@ async def process_rass(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(f"✅ Рассылка завершена!\nОтправлено: {sent}\nОшибок: {failed}")
 
-# Обработчик всех сообщений
 async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_subscribed = await check_channel_sub(user_id, context)
@@ -740,7 +730,6 @@ async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("👇 Используй кнопки в меню", reply_markup=main_keyboard())
 
-# Отмена
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
     return ConversationHandler.END
@@ -748,7 +737,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # ConversationHandler для поиска
     search_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("🔍 Поиск игрока"), search_player)],
         states={
@@ -760,7 +748,6 @@ def main():
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Text("🔙 Отмена"), cancel)]
     )
     
-    # ConversationHandler для рефералов
     ref_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(earn_callback, pattern="^exchange_refs$")],
         states={
@@ -769,7 +756,6 @@ def main():
         fallbacks=[CommandHandler("start", start)]
     )
     
-    # ConversationHandler для покупки
     buy_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(shop_callback, pattern="^buy_sub$")],
         states={
@@ -778,7 +764,6 @@ def main():
         fallbacks=[CommandHandler("start", start)]
     )
     
-    # ConversationHandler для админки
     admin_sub_conv = ConversationHandler(
         entry_points=[CommandHandler("sub", admin_sub)],
         states={
