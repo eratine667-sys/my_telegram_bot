@@ -94,7 +94,9 @@ def calculate_ref_bonus(refs):
         return f"{minutes} минут"
 
 def days_until_expiry(expiry_date_str):
-    if not expiry_date_str or expiry_date_str == 'forever':
+    if not expiry_date_str:
+        return 0
+    if expiry_date_str == 'forever':
         return 9999
     try:
         expiry = datetime.datetime.fromisoformat(expiry_date_str)
