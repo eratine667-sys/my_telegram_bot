@@ -12,61 +12,53 @@ if not BOT_TOKEN:
 
 WAITING_SEARCH_TYPE, WAITING_IP, WAITING_NICK, WAITING_PASSWORD = range(4)
 
-print("========== ДИАГНОСТИКА ЗАПУСКА ==========")
+print("========== ЗАГРУЗКА БАЗЫ ==========")
 
-# Проверяем текущую директорию
-current_dir = os.getcwd()
-print(f"1️⃣ Текущая папка: {current_dir}")
-
-# Проверяем содержимое текущей папки
-print(f"2️⃣ Файлы в текущей папке:")
-for file in os.listdir(current_dir):
-    print(f"   - {file}")
-
-# Проверяем папку data
-data_dir = 'data'
-data_path = os.path.join(current_dir, data_dir)
-print(f"3️⃣ Полный путь к data: {data_path}")
-
-if os.path.exists(data_path):
-    print(f"4️⃣ Папка data СУЩЕСТВУЕТ")
-    print(f"5️⃣ Содержимое папки data:")
-    for file in os.listdir(data_path):
-        print(f"   - {file}")
-else:
-    print(f"4️⃣ Папка data НЕ СУЩЕСТВУЕТ!")
-
-# Загружаем ТОЛЬКО players-2.json
-print(f"6️⃣ Загружаем players-2.json...")
-players = []
-json_path = os.path.join(data_path, 'players-2.json')
-
-if os.path.exists(json_path):
-    print(f"7️⃣ Файл НАЙДЕН: {json_path}")
+def load_all_players():
+    all_players = []
+    data_dir = '/app/data'
+    
+    print(f"📁 Путь к данным: {data_dir}")
+    
+    if not os.path.exists(data_dir):
+        print(f"❌ Папка {data_dir} НЕ СУЩЕСТВУЕТ!")
+        return []
+    
+    print(f"📂 Содержимое папки data:")
+    for f in os.listdir(data_dir):
+        print(f"   - {f}")
+    
     try:
-        with open(json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            print(f"8️⃣ Тип данных в файле: {type(data)}")
-            print(f"9️⃣ Содержимое файла: {data}")
-            
-            for nick, info in data.items():
-                player = {
-                    'nick': nick,
-                    'ip': info.get('ip'),
-                    'password': info.get('password')
-                }
-                players.append(player)
-            print(f"🔟 Загружено игроков: {len(players)}")
+        for i in range(1, 8):
+            file_path = os.path.join(data_dir, f'players-{i}.json')
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for nick, info in data.items():
+                        player = {
+                            'nick': nick,
+                            'ip': info.get('ip'),
+                            'password': info.get('password')
+                        }
+                        all_players.append(player)
+                    print(f"✅ Файл players-{i}.json: {len(data)} игроков")
+        
+        print(f"✅ ВСЕГО ЗАГРУЖЕНО: {len(all_players)} игроков")
+        
+        if len(all_players) > 0:
+            print("\n📝 ПЕРВЫЕ 5 ИГРОКОВ В БАЗЕ:")
+            for i, p in enumerate(all_players[:5]):
+                print(f"   {i+1}. Ник: '{p['nick']}', IP: {p['ip']}, Пароль: {p['password']}")
+        
     except Exception as e:
-        print(f"❌ ОШИБКА при загрузке: {e}")
-else:
-    print(f"❌ Файл НЕ НАЙДЕН: {json_path}")
+        print(f"❌ ОШИБКА: {e}")
+    
+    return all_players
 
-PLAYERS_DB = players
-print(f"✅ ВСЕГО В БАЗЕ: {len(PLAYERS_DB)} игроков")
-print("========== КОНЕЦ ДИАГНОСТИКИ ==========")
+PLAYERS_DB = load_all_players()
 
 def search_by_ip(ip):
+    ip = ip.strip()
     results = []
     for player in PLAYERS_DB:
         if player['ip'] == ip:
@@ -74,13 +66,25 @@ def search_by_ip(ip):
     return results
 
 def search_by_nick(nick):
+    nick = nick.strip()
+    nick_lower = nick.lower()
     results = []
+    
+    print(f"🔍 Поиск по нику: '{nick}'")
+    
     for player in PLAYERS_DB:
-        if player['nick'].lower() == nick.lower():
+        player_nick = player['nick']
+        player_nick_lower = player_nick.lower()
+        
+        if player_nick_lower == nick_lower:
             results.append(player)
+            print(f"✅ СОВПАДЕНИЕ: '{player_nick}' == '{nick}'")
+    
+    print(f"📊 Найдено совпадений: {len(results)}")
     return results
 
 def search_by_password(password):
+    password = password.strip()
     results = []
     for player in PLAYERS_DB:
         if player['password'] == password:
@@ -171,9 +175,8 @@ async def process_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     ip = update.message.text
-    print(f"🔍 Поиск по IP: {ip}")
+    print(f"🔍 Поиск по IP: '{ip}'")
     results = search_by_ip(ip)
-    print(f"✅ Найдено: {len(results)}")
     
     if not results:
         await update.message.reply_text(f"❌ На IP {ip} ничего нет", reply_markup=main_keyboard())
@@ -191,12 +194,17 @@ async def process_nick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     nick = update.message.text
-    print(f"🔍 Поиск по нику: {nick}")
     results = search_by_nick(nick)
-    print(f"✅ Найдено: {len(results)}")
     
     if not results:
-        await update.message.reply_text(f"❌ Ник {nick} не найден", reply_markup=main_keyboard())
+        await update.message.reply_text(
+            f"❌ Ник '{nick}' не найден в базе\n\n"
+            f"Проверь:\n"
+            f"• Большие/маленькие буквы\n"
+            f"• Пробелы в начале/конце\n"
+            f"• Специальные символы",
+            reply_markup=main_keyboard()
+        )
     else:
         player = results[0]
         await update.message.reply_text(
@@ -212,9 +220,7 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     password = update.message.text
-    print(f"🔍 Поиск по паролю: {password}")
     results = search_by_password(password)
-    print(f"✅ Найдено: {len(results)}")
     
     if not results:
         await update.message.reply_text(f"❌ Пароль {password} не найден", reply_markup=main_keyboard())
@@ -259,7 +265,7 @@ def main():
     app.add_handler(conv_handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
     
-    print("🚀 Бот запущен на python-telegram-bot")
+    print("🚀 Бот запущен с ДИАГНОСТИКОЙ")
     app.run_polling()
 
 if __name__ == "__main__":
