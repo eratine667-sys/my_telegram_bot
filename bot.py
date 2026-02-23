@@ -22,6 +22,7 @@ WAITING_PROMO_CODE = range(8, 9)
 WAITING_PROMO_DAYS = range(9, 10)
 WAITING_PROMO_MINUTES = range(10, 11)
 WAITING_PROMO_ACTIVATIONS = range(11, 12)
+WAITING_GAME_CHOICE = range(12, 13)
 
 def load_users():
     try:
@@ -245,23 +246,25 @@ def cancel_keyboard():
         resize_keyboard=True
     )
 
-def games_inline_keyboard():
-    keyboard = [
-        [InlineKeyboardButton("🎡 Колесо удачи", callback_data="wheel")],
-        [InlineKeyboardButton("🎲 Рандомный аккаунт", callback_data="random_account")],
-        [InlineKeyboardButton("🎫 Промокод", callback_data="promo")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+def games_keyboard():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("🎡 Колесо удачи")],
+        [KeyboardButton("🎲 Рандомный аккаунт")],
+        [KeyboardButton("🎫 Промокод")],
+        [KeyboardButton("🔙 Главное меню")]
+    ], resize_keyboard=True)
 
-def exchange_keyboard():
-    return ReplyKeyboardMarkup(
-        [[KeyboardButton("🔄 Обменять рефералов")]],
-        resize_keyboard=True
-    )
+def earn_keyboard():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("🔄 Обменять рефералов")],
+        [KeyboardButton("🔙 Главное меню")]
+    ], resize_keyboard=True)
 
-def shop_inline_keyboard():
-    keyboard = [[InlineKeyboardButton("🎁 Приобрести подписку", callback_data="buy_sub")]]
-    return InlineKeyboardMarkup(keyboard)
+def shop_keyboard():
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("🎁 Приобрести подписку")],
+        [KeyboardButton("🔙 Главное меню")]
+    ], resize_keyboard=True)
 
 async def check_channel_sub(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     try:
@@ -332,7 +335,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del context.user_data['referred_by']
         
         await update.message.reply_text(
-            f"🚀 Приветствуем в нашем боте v0.9.0!\n\n"
+            f"🚀 Приветствуем в нашем боте v0.9.1!\n\n"
             f"Мы долго готовили данное обновление!\n\n"
             f"📋 Доступные функции:\n"
             f"• 🔍 Поиск игроков по базе данных\n"
@@ -353,7 +356,7 @@ async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if is_subscribed:
         await query.edit_message_text(
-            f"🚀 Приветствуем в нашем боте v0.9.0!\n\n"
+            f"🚀 Приветствуем в нашем боте v0.9.1!\n\n"
             f"Мы долго готовили данное обновление!\n\n"
             f"📋 Доступные функции:\n"
             f"• 🔍 Поиск игроков по базе данных\n"
@@ -370,7 +373,6 @@ async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username
-    first_name = update.effective_user.first_name
     
     is_subscribed = await check_channel_sub(user_id, context)
     if not is_subscribed:
@@ -544,16 +546,14 @@ async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<code>{ref_link}</code>"
     )
     
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=exchange_keyboard())
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=earn_keyboard())
 
 async def exchange_refs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🔄 Обменять рефералов":
-        await update.message.reply_text(
-            "💬 Укажи сколько рефералов хочешь обменять:",
-            reply_markup=cancel_keyboard()
-        )
-        return WAITING_REFERRAL_AMOUNT
-    return ConversationHandler.END
+    await update.message.reply_text(
+        "💬 Укажи сколько рефералов хочешь обменять:",
+        reply_markup=cancel_keyboard()
+    )
+    return WAITING_REFERRAL_AMOUNT
 
 async def process_referral_exchange(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🔙 Отмена":
@@ -606,34 +606,20 @@ async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<i>Если нужна подписка на другое количество дней — каждый день +44₽</i>"
     )
     
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=shop_inline_keyboard())
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=shop_keyboard())
 
-async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "buy_sub":
-        await query.edit_message_text(
-            "💬 Сколько дней подписки нужно? (9999 для навсегда)",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_shop")]])
-        )
-        return WAITING_SUB_DAYS
-    
-    elif query.data == "back_to_shop":
-        text = (
-            f"🛒 <b>Магазин подписок</b>\n\n"
-            f"<b>Цены:</b>\n"
-            f"• 1 день — 125₽\n"
-            f"• 7 дней — 350₽\n"
-            f"• 14 дней — 650₽\n"
-            f"• 30 дней — 950₽\n"
-            f"• Навсегда — 3150₽\n\n"
-            f"<i>Если нужна подписка на другое количество дней — каждый день +44₽</i>"
-        )
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=shop_inline_keyboard())
-        return ConversationHandler.END
+async def buy_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💬 Сколько дней подписки нужно? (9999 для навсегда)",
+        reply_markup=cancel_keyboard()
+    )
+    return WAITING_SUB_DAYS
 
 async def process_sub_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🔙 Отмена":
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
+    
     try:
         days = int(update.message.text)
         if days <= 0:
@@ -678,14 +664,13 @@ async def games(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Выбери игру:"
     )
     
-    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=games_inline_keyboard())
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=games_keyboard())
 
-async def games_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
+async def handle_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
     
-    if query.data == "wheel":
+    if text == "🎡 Колесо удачи":
         if not can_use_wheel(user_id):
             users = load_users()
             last_wheel = users[str(user_id)].get('last_wheel')
@@ -695,10 +680,10 @@ async def games_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             remaining = 14 * 3600 - delta.total_seconds()
             hours = int(remaining // 3600)
             minutes = int((remaining % 3600) // 60)
-            await query.edit_message_text(
+            await update.message.reply_text(
                 f"❌ Колесо удачи можно использовать раз в 14 часов!\n"
                 f"⏳ Осталось: {hours} ч. {minutes} мин.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
+                reply_markup=games_keyboard()
             )
             return
         
@@ -710,22 +695,22 @@ async def games_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             users[str(user_id)]['last_wheel'] = datetime.datetime.now().isoformat()
             save_users(users)
             
-            await query.edit_message_text(
+            await update.message.reply_text(
                 f"🎉 Поздравляем! Ты выиграл {minutes} минут подписки!\n\n"
                 f"⏱ Текущий статус: {get_subscription_status(user_id)}",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
+                reply_markup=games_keyboard()
             )
         else:
             users = load_users()
             users[str(user_id)]['last_wheel'] = datetime.datetime.now().isoformat()
             save_users(users)
             
-            await query.edit_message_text(
+            await update.message.reply_text(
                 f"😢 К сожалению, ты ничего не выиграл.\nПопробуй через 14 часов!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
+                reply_markup=games_keyboard()
             )
     
-    elif query.data == "random_account":
+    elif text == "🎲 Рандомный аккаунт":
         if not can_use_random(user_id):
             users = load_users()
             last_random = users[str(user_id)].get('last_random')
@@ -735,10 +720,10 @@ async def games_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             remaining = 14 * 3600 - delta.total_seconds()
             hours = int(remaining // 3600)
             minutes = int((remaining % 3600) // 60)
-            await query.edit_message_text(
+            await update.message.reply_text(
                 f"❌ Рандомный аккаунт можно получать раз в 14 часов!\n"
                 f"⏳ Осталось: {hours} ч. {minutes} мин.",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
+                reply_markup=games_keyboard()
             )
             return
         
@@ -756,33 +741,31 @@ async def games_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🌐 IP: {account['ip']}"
             )
             
-            await query.edit_message_text(
-                text,
-                parse_mode=ParseMode.HTML,
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
-            )
+            await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=games_keyboard())
         else:
-            await query.edit_message_text(
+            await update.message.reply_text(
                 "❌ База данных аккаунтов пуста!",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
+                reply_markup=games_keyboard()
             )
     
-    elif query.data == "promo":
-        await query.edit_message_text(
+    elif text == "🎫 Промокод":
+        await update.message.reply_text(
             "🎫 Введи промокод:",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_games")]])
+            reply_markup=cancel_keyboard()
         )
         return WAITING_PROMO_CODE
     
-    elif query.data == "back_to_games":
-        await query.edit_message_text(
-            f"🎮 <b>Игры и развлечения</b>\n\n"
-            f"Выбери игру:",
-            parse_mode=ParseMode.HTML,
-            reply_markup=games_inline_keyboard()
-        )
+    elif text == "🔙 Главное меню":
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
+    
+    return ConversationHandler.END
 
 async def process_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🔙 Отмена":
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
+    
     user_id = update.effective_user.id
     code = update.message.text.strip()
     
@@ -1063,8 +1046,6 @@ async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await games(update, context)
     elif text == "🔍 Поиск игрока":
         await search_player(update, context)
-    elif text == "🔄 Обменять рефералов":
-        await exchange_refs(update, context)
     else:
         await update.message.reply_text("👇 Используй кнопки в меню", reply_markup=main_keyboard())
 
@@ -1095,19 +1076,19 @@ def main():
     )
     
     buy_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(shop_callback, pattern="^buy_sub$")],
+        entry_points=[MessageHandler(filters.Text("🎁 Приобрести подписку"), buy_sub)],
         states={
             WAITING_SUB_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_sub_days)]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Text("🔙 Отмена"), cancel)]
     )
     
     promo_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(games_callback, pattern="^promo$")],
+        entry_points=[MessageHandler(filters.Text("🎫 Промокод"), handle_games)],
         states={
             WAITING_PROMO_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_code)]
         },
-        fallbacks=[CommandHandler("start", start)]
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Text("🔙 Отмена"), cancel)]
     )
     
     admin_sub_conv = ConversationHandler(
@@ -1143,15 +1124,15 @@ def main():
     app.add_handler(admin_rass_conv)
     app.add_handler(admin_promo_conv)
     app.add_handler(CallbackQueryHandler(check_sub_callback, pattern="^check_sub$"))
-    app.add_handler(CallbackQueryHandler(games_callback, pattern="^(wheel|random_account|promo|back_to_games)$"))
-    app.add_handler(CallbackQueryHandler(shop_callback, pattern="^(buy_sub|back_to_shop)$"))
     app.add_handler(search_conv)
     app.add_handler(ref_conv)
     app.add_handler(buy_conv)
     app.add_handler(promo_conv)
+    app.add_handler(MessageHandler(filters.Text("🎡 Колесо удачи"), handle_games))
+    app.add_handler(MessageHandler(filters.Text("🎲 Рандомный аккаунт"), handle_games))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
     
-    print("🚀 Бот запущен с полным функционалом v0.9.0!")
+    print("🚀 Бот запущен с полным функционалом v0.9.1!")
     app.run_polling()
 
 if __name__ == "__main__":
