@@ -1,12 +1,8 @@
 import os
 import json
 import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-import asyncio
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 CHANNEL_ID = '@HelpimServer'
@@ -14,22 +10,7 @@ CHANNEL_ID = '@HelpimServer'
 if not BOT_TOKEN:
     raise ValueError("НЕТ ТОКЕНА! Добавь BOT_TOKEN в переменные окружения")
 
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-
-class SearchStates(StatesGroup):
-    waiting_for_search_type = State()
-    waiting_for_ip = State()
-    waiting_for_nick = State()
-    waiting_for_password = State()
-
-async def check_subscription(user_id: int) -> bool:
-    try:
-        member = await bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-        return member.status not in ['left', 'kicked']
-    except:
-        return False
+WAITING_SEARCH_TYPE, WAITING_IP, WAITING_NICK, WAITING_PASSWORD = range(4)
 
 def load_all_players():
     all_players = []
@@ -78,193 +59,173 @@ def search_by_password(password):
     return results
 
 def main_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="🔍 Поиск игрока")]
-        ],
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("🔍 Поиск игрока")]],
         resize_keyboard=True
     )
-    return keyboard
 
 def search_type_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="🌐 Поиск по IP")],
-            [types.KeyboardButton(text="👤 Поиск по нику")],
-            [types.KeyboardButton(text="🔑 Поиск по паролю")],
-            [types.KeyboardButton(text="🔙 Главное меню")]
-        ],
-        resize_keyboard=True
-    )
-    return keyboard
+    return ReplyKeyboardMarkup([
+        [KeyboardButton("🌐 Поиск по IP")],
+        [KeyboardButton("👤 Поиск по нику")],
+        [KeyboardButton("🔑 Поиск по паролю")],
+        [KeyboardButton("🔙 Главное меню")]
+    ], resize_keyboard=True)
 
 def cancel_keyboard():
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=[
-            [types.KeyboardButton(text="🔙 Отмена")]
-        ],
+    return ReplyKeyboardMarkup(
+        [[KeyboardButton("🔙 Отмена")]],
         resize_keyboard=True
     )
-    return keyboard
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    is_subscribed = await check_subscription(user_id)
+async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    try:
+        member = await context.bot.get_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
+        return member.status not in ['left', 'kicked']
+    except:
+        return False
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_subscribed = await check_subscription(user_id, context)
     
     if not is_subscribed:
-        await message.answer(
-            f"👋 Привет, {message.from_user.first_name}!\n\n"
+        await update.message.reply_text(
+            f"👋 Привет, {update.effective_user.first_name}!\n\n"
             f"🔒 Для доступа к боту подпишись на канал: @HelpimServer\n\n"
-            f"После подписки нажми /start снова",
-            reply_markup=types.ReplyKeyboardRemove()
+            f"После подписки нажми /start снова"
         )
     else:
-        await state.clear()
-        await message.answer(
-            f"✅ Спасибо за подписку, {message.from_user.first_name}!\n\n"
+        await update.message.reply_text(
+            f"✅ Спасибо за подписку, {update.effective_user.first_name}!\n\n"
             f"Выбери действие:",
             reply_markup=main_keyboard()
         )
+    return ConversationHandler.END
 
-@dp.message(lambda message: message.text == "🔍 Поиск игрока")
-async def search_player(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    is_subscribed = await check_subscription(user_id)
+async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_subscribed = await check_subscription(user_id, context)
     
     if not is_subscribed:
-        await cmd_start(message, state)
-        return
+        await start(update, context)
+        return ConversationHandler.END
     
-    await message.answer(
+    await update.message.reply_text(
         "🔍 Выбери способ поиска:",
         reply_markup=search_type_keyboard()
     )
-    await state.set_state(SearchStates.waiting_for_search_type)
+    return WAITING_SEARCH_TYPE
 
-@dp.message(lambda message: message.text == "🔙 Главное меню")
-async def back_to_main(message: types.Message, state: FSMContext):
-    await state.clear()
-    await message.answer(
-        "🔙 Главное меню:",
-        reply_markup=main_keyboard()
-    )
-
-@dp.message(SearchStates.waiting_for_search_type)
-async def handle_search_type(message: types.Message, state: FSMContext):
-    text = message.text
+async def handle_search_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
     
     if text == "🌐 Поиск по IP":
-        await message.answer(
-            "🌐 Введи IP:",
-            reply_markup=cancel_keyboard()
-        )
-        await state.set_state(SearchStates.waiting_for_ip)
-    
+        await update.message.reply_text("🌐 Введи IP:", reply_markup=cancel_keyboard())
+        return WAITING_IP
     elif text == "👤 Поиск по нику":
-        await message.answer(
-            "👤 Введи ник:",
-            reply_markup=cancel_keyboard()
-        )
-        await state.set_state(SearchStates.waiting_for_nick)
-    
+        await update.message.reply_text("👤 Введи ник:", reply_markup=cancel_keyboard())
+        return WAITING_NICK
     elif text == "🔑 Поиск по паролю":
-        await message.answer(
-            "🔑 Введи пароль:",
-            reply_markup=cancel_keyboard()
-        )
-        await state.set_state(SearchStates.waiting_for_password)
-    
+        await update.message.reply_text("🔑 Введи пароль:", reply_markup=cancel_keyboard())
+        return WAITING_PASSWORD
     elif text == "🔙 Главное меню":
-        await state.clear()
-        await message.answer(
-            "🔙 Главное меню:",
-            reply_markup=main_keyboard()
-        )
-    
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
     else:
-        await message.answer(
-            "❌ Используй кнопки!",
-            reply_markup=search_type_keyboard()
-        )
+        await update.message.reply_text("❌ Используй кнопки!", reply_markup=search_type_keyboard())
+        return WAITING_SEARCH_TYPE
 
-@dp.message(SearchStates.waiting_for_ip)
-async def process_ip(message: types.Message, state: FSMContext):
-    if message.text == "🔙 Отмена":
-        await state.clear()
-        await message.answer("🔙 Главное меню:", reply_markup=main_keyboard())
-        return
+async def process_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🔙 Отмена":
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
     
-    ip = message.text
+    ip = update.message.text
     results = search_by_ip(ip)
     
     if not results:
-        await message.answer(f"❌ На IP {ip} ничего нет", reply_markup=main_keyboard())
+        await update.message.reply_text(f"❌ На IP {ip} ничего нет", reply_markup=main_keyboard())
     else:
         text = f"🌐 IP: {ip}\n\n"
         for player in results:
             text += f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}\n\n"
-        await message.answer(text, reply_markup=main_keyboard())
+        await update.message.reply_text(text, reply_markup=main_keyboard())
     
-    await state.clear()
+    return ConversationHandler.END
 
-@dp.message(SearchStates.waiting_for_nick)
-async def process_nick(message: types.Message, state: FSMContext):
-    if message.text == "🔙 Отмена":
-        await state.clear()
-        await message.answer("🔙 Главное меню:", reply_markup=main_keyboard())
-        return
+async def process_nick(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🔙 Отмена":
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
     
-    nick = message.text
+    nick = update.message.text
     results = search_by_nick(nick)
     
     if not results:
-        await message.answer(f"❌ Ник {nick} не найден", reply_markup=main_keyboard())
+        await update.message.reply_text(f"❌ Ник {nick} не найден", reply_markup=main_keyboard())
     else:
         player = results[0]
-        await message.answer(
+        await update.message.reply_text(
             f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}",
             reply_markup=main_keyboard()
         )
     
-    await state.clear()
+    return ConversationHandler.END
 
-@dp.message(SearchStates.waiting_for_password)
-async def process_password(message: types.Message, state: FSMContext):
-    if message.text == "🔙 Отмена":
-        await state.clear()
-        await message.answer("🔙 Главное меню:", reply_markup=main_keyboard())
-        return
+async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🔙 Отмена":
+        await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+        return ConversationHandler.END
     
-    password = message.text
+    password = update.message.text
     results = search_by_password(password)
     
     if not results:
-        await message.answer(f"❌ Пароль {password} не найден", reply_markup=main_keyboard())
+        await update.message.reply_text(f"❌ Пароль {password} не найден", reply_markup=main_keyboard())
     else:
         text = f"🔑 Пароль: {password}\n\n"
         for player in results:
             text += f"👤 Ник: {player['nick']}\n"
-        await message.answer(text, reply_markup=main_keyboard())
+        await update.message.reply_text(text, reply_markup=main_keyboard())
     
-    await state.clear()
+    return ConversationHandler.END
 
-@dp.message()
-async def handle_all(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    is_subscribed = await check_subscription(user_id)
+async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_subscribed = await check_subscription(user_id, context)
     
     if not is_subscribed:
-        await cmd_start(message, state)
-        return
+        await start(update, context)
+        return ConversationHandler.END
     
-    current_state = await state.get_state()
-    if current_state is None:
-        await message.answer("👇 Используй кнопки", reply_markup=main_keyboard())
+    await update.message.reply_text("👇 Используй кнопки", reply_markup=main_keyboard())
+    return ConversationHandler.END
 
-async def main():
-    print("🚀 Бот запущен")
-    await dp.start_polling(bot)
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+    return ConversationHandler.END
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text("🔍 Поиск игрока"), search_player)],
+        states={
+            WAITING_SEARCH_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_type)],
+            WAITING_IP: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_ip)],
+            WAITING_NICK: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_nick)],
+            WAITING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_password)],
+        },
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Text("🔙 Отмена"), cancel)]
+    )
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(conv_handler)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
+    
+    print("🚀 Бот запущен на python-telegram-bot")
+    app.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
