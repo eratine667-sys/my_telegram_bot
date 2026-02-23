@@ -12,30 +12,59 @@ if not BOT_TOKEN:
 
 WAITING_SEARCH_TYPE, WAITING_IP, WAITING_NICK, WAITING_PASSWORD = range(4)
 
-def load_all_players():
-    all_players = []
-    data_dir = '/app/data'
-    
-    try:
-        for i in range(1, 8):
-            file_path = os.path.join(data_dir, f'players-{i}.json')
-            if os.path.exists(file_path):
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    for nick, info in data.items():
-                        player = {
-                            'nick': nick,
-                            'ip': info.get('ip'),
-                            'password': info.get('password')
-                        }
-                        all_players.append(player)
-        print(f"✅ Загружено игроков: {len(all_players)}")
-    except Exception as e:
-        print(f"❌ Ошибка загрузки баз данных: {e}")
-    
-    return all_players
+print("========== ДИАГНОСТИКА ЗАПУСКА ==========")
 
-PLAYERS_DB = load_all_players()
+# Проверяем текущую директорию
+current_dir = os.getcwd()
+print(f"1️⃣ Текущая папка: {current_dir}")
+
+# Проверяем содержимое текущей папки
+print(f"2️⃣ Файлы в текущей папке:")
+for file in os.listdir(current_dir):
+    print(f"   - {file}")
+
+# Проверяем папку data
+data_dir = 'data'
+data_path = os.path.join(current_dir, data_dir)
+print(f"3️⃣ Полный путь к data: {data_path}")
+
+if os.path.exists(data_path):
+    print(f"4️⃣ Папка data СУЩЕСТВУЕТ")
+    print(f"5️⃣ Содержимое папки data:")
+    for file in os.listdir(data_path):
+        print(f"   - {file}")
+else:
+    print(f"4️⃣ Папка data НЕ СУЩЕСТВУЕТ!")
+
+# Загружаем ТОЛЬКО players-2.json
+print(f"6️⃣ Загружаем players-2.json...")
+players = []
+json_path = os.path.join(data_path, 'players-2.json')
+
+if os.path.exists(json_path):
+    print(f"7️⃣ Файл НАЙДЕН: {json_path}")
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            print(f"8️⃣ Тип данных в файле: {type(data)}")
+            print(f"9️⃣ Содержимое файла: {data}")
+            
+            for nick, info in data.items():
+                player = {
+                    'nick': nick,
+                    'ip': info.get('ip'),
+                    'password': info.get('password')
+                }
+                players.append(player)
+            print(f"🔟 Загружено игроков: {len(players)}")
+    except Exception as e:
+        print(f"❌ ОШИБКА при загрузке: {e}")
+else:
+    print(f"❌ Файл НЕ НАЙДЕН: {json_path}")
+
+PLAYERS_DB = players
+print(f"✅ ВСЕГО В БАЗЕ: {len(PLAYERS_DB)} игроков")
+print("========== КОНЕЦ ДИАГНОСТИКИ ==========")
 
 def search_by_ip(ip):
     results = []
@@ -142,7 +171,9 @@ async def process_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     ip = update.message.text
+    print(f"🔍 Поиск по IP: {ip}")
     results = search_by_ip(ip)
+    print(f"✅ Найдено: {len(results)}")
     
     if not results:
         await update.message.reply_text(f"❌ На IP {ip} ничего нет", reply_markup=main_keyboard())
@@ -160,7 +191,9 @@ async def process_nick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     nick = update.message.text
+    print(f"🔍 Поиск по нику: {nick}")
     results = search_by_nick(nick)
+    print(f"✅ Найдено: {len(results)}")
     
     if not results:
         await update.message.reply_text(f"❌ Ник {nick} не найден", reply_markup=main_keyboard())
@@ -179,7 +212,9 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     password = update.message.text
+    print(f"🔍 Поиск по паролю: {password}")
     results = search_by_password(password)
+    print(f"✅ Найдено: {len(results)}")
     
     if not results:
         await update.message.reply_text(f"❌ Пароль {password} не найден", reply_markup=main_keyboard())
