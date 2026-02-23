@@ -15,14 +15,14 @@ if not BOT_TOKEN:
     raise ValueError("НЕТ ТОКЕНА! Добавь BOT_TOKEN в переменные окружения")
 
 WAITING_SEARCH_TYPE, WAITING_IP, WAITING_NICK, WAITING_PASSWORD = range(4)
-WAITING_REFERRAL_AMOUNT = 4
-WAITING_SUB_DAYS = 5
-WAITING_ADMIN_SUB = 6
-WAITING_RASS = 7
-WAITING_PROMO_CODE = 8
-WAITING_PROMO_DAYS = 9
-WAITING_PROMO_MINUTES = 10
-WAITING_PROMO_ACTIVATIONS = 11
+WAITING_REFERRAL_AMOUNT = range(4, 5)
+WAITING_SUB_DAYS = range(5, 6)
+WAITING_ADMIN_SUB = range(6, 7)
+WAITING_RASS = range(7, 8)
+WAITING_PROMO_CODE = range(8, 9)
+WAITING_PROMO_DAYS = range(9, 10)
+WAITING_PROMO_MINUTES = range(10, 11)
+WAITING_PROMO_ACTIVATIONS = range(11, 12)
 
 def load_users():
     try:
@@ -55,13 +55,13 @@ def load_all_players():
             if os.path.exists(file_path):
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                for nick, info in data.items():
-                    player = {
-                        'nick': nick,
-                        'ip': info.get('ip'),
-                        'password': info.get('password')
-                    }
-                    all_players.append(player)
+                    for nick, info in data.items():
+                        player = {
+                            'nick': nick,
+                            'ip': info.get('ip'),
+                            'password': info.get('password')
+                        }
+                        all_players.append(player)
     except Exception as e:
         print(f"Ошибка загрузки: {e}")
     return all_players
@@ -170,6 +170,7 @@ def get_subscription_status(user_id):
 def add_subscription_time(user_id, minutes):
     users = load_users()
     user_id_str = str(user_id)
+    
     if user_id_str not in users:
         users[user_id_str] = {
             'joined_date': datetime.datetime.now().isoformat(),
@@ -179,11 +180,15 @@ def add_subscription_time(user_id, minutes):
             'last_wheel': None,
             'last_random': None,
             'search_count': 0,
-            'notified_expiry': False
+            'notified_expiry': False,
+            'subscribed': False
         }
+    
     current_sub = users[user_id_str].get('subscription_end')
+    
     if current_sub == 'forever':
         return
+    
     if current_sub:
         sub_date = datetime.datetime.fromisoformat(current_sub)
         if sub_date > datetime.datetime.now():
@@ -192,6 +197,7 @@ def add_subscription_time(user_id, minutes):
             new_sub = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
     else:
         new_sub = datetime.datetime.now() + datetime.timedelta(minutes=minutes)
+    
     users[user_id_str]['subscription_end'] = new_sub.isoformat()
     users[user_id_str]['notified_expiry'] = False
     save_users(users)
@@ -202,6 +208,7 @@ def add_subscription_days(user_id, days):
 def remove_subscription(user_id):
     users = load_users()
     user_id_str = str(user_id)
+    
     if user_id_str in users:
         users[user_id_str]['subscription_end'] = None
         users[user_id_str]['notified_expiry'] = False
@@ -334,12 +341,13 @@ def update_user_activity(user_id, username=None):
             'last_wheel': None,
             'last_random': None,
             'search_count': 0,
-            'notified_expiry': False
+            'notified_expiry': False,
+            'subscribed': False
         }
     else:
         users[user_id_str]['last_seen'] = datetime.datetime.now().isoformat()
-    if username:
-        users[user_id_str]['username'] = username
+        if username:
+            users[user_id_str]['username'] = username
     save_users(users)
     return users[user_id_str]
 
@@ -348,15 +356,18 @@ async def check_expiry_notifications(app):
         try:
             users = load_users()
             now = datetime.datetime.now()
+            
             for user_id_str, data in users.items():
                 expiry = data.get('subscription_end')
                 if expiry and expiry != 'forever' and not data.get('notified_expiry', False):
                     try:
                         expiry_date = datetime.datetime.fromisoformat(expiry)
                         delta = expiry_date - now
+                        
                         if delta.total_seconds() <= 24 * 3600 and delta.total_seconds() > 0:
                             hours = int(delta.seconds // 3600)
                             minutes = int((delta.seconds % 3600) // 60)
+                            
                             await app.bot.send_message(
                                 int(user_id_str),
                                 f"⚠️ <b>Внимание!</b>\n\n"
@@ -364,12 +375,14 @@ async def check_expiry_notifications(app):
                                 f"Продли подписку в магазине, чтобы не потерять доступ к поиску!",
                                 parse_mode=ParseMode.HTML
                             )
+                            
                             users[user_id_str]['notified_expiry'] = True
                             save_users(users)
                     except:
                         pass
         except Exception as e:
             print(f"Ошибка в проверке подписок: {e}")
+        
         await asyncio.sleep(3600)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -388,42 +401,48 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_subscribed:
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID[1:]}")],
-            [InlineKeyboardButton("✅ Я подписался", callback_data="check_sub")]
+            [InlineKeyboardButton("🔄 Проверить подписку", callback_data="check_sub_after")]
         ])
-        
-        if update.message:
-            await update.message.reply_text(
-                f"👋 Привет, {first_name}!\n\n"
-                f"🔒 Для доступа к боту подпишись на канал: {CHANNEL_ID}\n\n"
-                f"После подписки нажми кнопку ниже:",
-                reply_markup=keyboard
-            )
-        else:
-            await update.callback_query.edit_message_text(
-                f"👋 Привет, {first_name}!\n\n"
-                f"🔒 Для доступа к боту подпишись на канал: {CHANNEL_ID}\n\n"
-                f"После подписки нажми кнопку ниже:",
-                reply_markup=keyboard
-            )
+        await update.message.reply_text(
+            f"👋 Привет, {first_name}!\n\n"
+            f"🔒 Для доступа к боту нужно подписаться на канал: {CHANNEL_ID}\n\n"
+            f"1. Нажми кнопку 'Подписаться на канал'\n"
+            f"2. Подпишись\n"
+            f"3. Нажми 'Проверить подписку'\n\n"
+            f"✅ Только после подписки засчитается реферал и откроется весь функционал!",
+            reply_markup=keyboard
+        )
     else:
-        if 'referred_by' in context.user_data:
-            referrer_id = context.user_data['referred_by']
-            users = load_users()
-            if str(referrer_id) in users:
-                users[str(referrer_id)]['referrals'] = users[str(referrer_id)].get('referrals', 0) + 1
-                save_users(users)
-                try:
-                    await context.bot.send_message(
-                        int(referrer_id),
-                        f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
-                    )
-                except:
-                    pass
-            del context.user_data['referred_by']
+        users = load_users()
+        user_id_str = str(user_id)
         
-        if update.message:
+        if not users[user_id_str].get('subscribed', False):
+            users[user_id_str]['subscribed'] = True
+            
+            if 'referred_by' in context.user_data:
+                referrer_id = context.user_data['referred_by']
+                if str(referrer_id) in users:
+                    users[str(referrer_id)]['referrals'] = users[str(referrer_id)].get('referrals', 0) + 1
+                    save_users(users)
+                    try:
+                        await context.bot.send_message(
+                            int(referrer_id),
+                            f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
+                        )
+                    except:
+                        pass
+                del context.user_data['referred_by']
+            
+            save_users(users)
+            
             await update.message.reply_text(
-                f"🚀 Приветствуем в нашем боте v0.9.5!\n\n"
+                f"✅ Спасибо за подписку, {first_name}!\n\n"
+                f"🚀 Весь функционал бота теперь доступен!\n"
+                f"📋 Нажми /start чтобы начать"
+            )
+            
+            await update.message.reply_text(
+                f"🚀 Приветствуем в нашем боте v0.9.6!\n\n"
                 f"Мы долго готовили данное обновление!\n\n"
                 f"📋 Доступные функции:\n"
                 f"• 🔍 Поиск игроков по базе данных\n"
@@ -436,9 +455,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=main_keyboard()
             )
         else:
-            await update.callback_query.edit_message_text(
-                f"🚀 Приветствуем в нашем боте v0.9.5!\n\n"
-                f"Мы долго готовили данное обновление!\n\n"
+            await update.message.reply_text(
+                f"🚀 Приветствуем в нашем боте v0.9.6!\n\n"
                 f"📋 Доступные функции:\n"
                 f"• 🔍 Поиск игроков по базе данных\n"
                 f"• 👤 Личный профиль с статистикой\n"
@@ -446,22 +464,79 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"• 🛒 Магазин подписок\n"
                 f"• 🎮 Игры и развлечения\n"
                 f"• 🏆 Лидеры бота\n\n"
-                f"Выбирай функцию кнопками ниже:"
+                f"Выбирай функцию кнопками ниже:",
+                reply_markup=main_keyboard()
             )
-            await update.callback_query.message.reply_text("👇 Твои кнопки:", reply_markup=main_keyboard())
-    
     return ConversationHandler.END
 
-async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_sub_after_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    first_name = query.from_user.first_name
+    username = query.from_user.username
+    
     is_subscribed = await check_channel_sub(user_id, context)
     
     if is_subscribed:
-        await start(update, context)
+        users = load_users()
+        user_id_str = str(user_id)
+        
+        if user_id_str not in users:
+            users[user_id_str] = {
+                'joined_date': datetime.datetime.now().isoformat(),
+                'subscription_end': None,
+                'referrals': 0,
+                'referred_by': None,
+                'username': username,
+                'first_seen': datetime.datetime.now().isoformat(),
+                'last_wheel': None,
+                'last_random': None,
+                'search_count': 0,
+                'notified_expiry': False,
+                'subscribed': True
+            }
+        else:
+            users[user_id_str]['subscribed'] = True
+            users[user_id_str]['last_seen'] = datetime.datetime.now().isoformat()
+            if username:
+                users[user_id_str]['username'] = username
+        
+        if 'referred_by' in context.user_data:
+            referrer_id = context.user_data['referred_by']
+            if str(referrer_id) in users:
+                users[str(referrer_id)]['referrals'] = users[str(referrer_id)].get('referrals', 0) + 1
+                try:
+                    await context.bot.send_message(
+                        int(referrer_id),
+                        f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
+                    )
+                except:
+                    pass
+            del context.user_data['referred_by']
+        
+        save_users(users)
+        
+        await query.edit_message_text(
+            f"✅ Спасибо за подписку, {first_name}!\n\n"
+            f"🚀 Весь функционал бота теперь доступен!\n"
+            f"📋 Нажми /start чтобы начать"
+        )
+        
+        await query.message.reply_text(
+            f"🚀 Приветствуем в нашем боте v0.9.6!\n\n"
+            f"📋 Доступные функции:\n"
+            f"• 🔍 Поиск игроков по базе данных\n"
+            f"• 👤 Личный профиль с статистикой\n"
+            f"• 💰 Заработок подписки за рефералов\n"
+            f"• 🛒 Магазин подписок\n"
+            f"• 🎮 Игры и развлечения\n"
+            f"• 🏆 Лидеры бота\n\n"
+            f"Выбирай функцию кнопками ниже:",
+            reply_markup=main_keyboard()
+        )
     else:
-        await query.answer("❌ Ты ещё не подписался!", show_alert=True)
+        await query.answer("❌ Ты ещё не подписался! Подпишись и нажми снова.", show_alert=True)
 
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -482,7 +557,9 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     joined = datetime.datetime.fromisoformat(user_data.get('joined_date', datetime.datetime.now().isoformat()))
     days_in_bot = (datetime.datetime.now() - joined).days
+    
     sub_status = get_subscription_status(user_id)
+    
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
@@ -502,8 +579,8 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def search_player(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     is_subscribed = await check_channel_sub(user_id, context)
+    
     if not is_subscribed:
         await start(update, context)
         return ConversationHandler.END
@@ -554,8 +631,10 @@ async def process_ip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         increment_search_count(update.effective_user.id)
         text = f"🌐 IP: {ip}\n\n"
+        
         for player in results:
             text += f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}\n━━━━━━━━━━━━━━\n"
+        
         await update.message.reply_text(text, reply_markup=main_keyboard())
     
     return ConversationHandler.END
@@ -566,7 +645,6 @@ async def process_nick(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     nick_part = update.message.text
-    
     if len(nick_part) < 3:
         await update.message.reply_text("❌ Минимум 3 символа!", reply_markup=cancel_keyboard())
         return WAITING_NICK
@@ -578,10 +656,13 @@ async def process_nick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         increment_search_count(update.effective_user.id)
         text = f"👤 Ники начинающиеся на '{nick_part}':\n\n"
+        
         for player in results[:10]:
             text += f"👤 {player['nick']}\n🔑 {player['password']}\n━━━━━━━━━━━━━━\n"
+        
         if len(results) > 10:
             text += f"\n... и ещё {len(results)-10}"
+        
         await update.message.reply_text(text, reply_markup=main_keyboard())
     
     return ConversationHandler.END
@@ -592,7 +673,6 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     password_part = update.message.text
-    
     if len(password_part) < 3:
         await update.message.reply_text("❌ Минимум 3 символа!", reply_markup=cancel_keyboard())
         return WAITING_PASSWORD
@@ -604,18 +684,21 @@ async def process_password(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         increment_search_count(update.effective_user.id)
         text = f"🔑 Пароли содержащие '{password_part}':\n\n"
+        
         for player in results[:10]:
             text += f"👤 {player['nick']}\n🔑 {player['password']}\n━━━━━━━━━━━━━━\n"
+        
         if len(results) > 10:
             text += f"\n... и ещё {len(results)-10}"
+        
         await update.message.reply_text(text, reply_markup=main_keyboard())
     
     return ConversationHandler.END
 
 async def leaders(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     is_subscribed = await check_channel_sub(user_id, context)
+    
     if not is_subscribed:
         await start(update, context)
         return
@@ -636,8 +719,8 @@ async def top_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "Пока нет рефералов у пользователей.\nСтань первым!"
     else:
         for i, user in enumerate(top, 1):
-            medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else "   "
-            username = f"@{user['username']}" if user['username'] != 'нет' else f"👤 ID: {user['user_id']}"
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "👤"
+            username = f"@{user['username']}" if user['username'] != 'нет' else f"ID: {user['user_id']}"
             text += f"{medal} {i}. {username} — {user['referrals']} реф.\n"
     
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=leaders_keyboard())
@@ -651,16 +734,16 @@ async def top_searches(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "Пока никто не искал аккаунты.\nБудь первым!"
     else:
         for i, user in enumerate(top, 1):
-            medal = "🥇 " if i == 1 else "🥈 " if i == 2 else "🥉 " if i == 3 else "   "
-            username = f"@{user['username']}" if user['username'] != 'нет' else f"👤 ID: {user['user_id']}"
+            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else "👤"
+            username = f"@{user['username']}" if user['username'] != 'нет' else f"ID: {user['user_id']}"
             text += f"{medal} {i}. {username} — {user['searches']} поисков\n"
     
     await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=leaders_keyboard())
 
 async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     is_subscribed = await check_channel_sub(user_id, context)
+    
     if not is_subscribed:
         await start(update, context)
         return
@@ -669,6 +752,7 @@ async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_data = users.get(str(user_id), {})
     referrals = user_data.get('referrals', 0)
     bonus = calculate_ref_bonus(referrals)
+    
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
@@ -714,6 +798,7 @@ async def process_referral_exchange(update: Update, context: ContextTypes.DEFAUL
         
         minutes = amount * 2
         users[str(user_id)]['referrals'] = referrals - amount
+        
         add_subscription_time(user_id, minutes)
         
         await update.message.reply_text(
@@ -729,8 +814,8 @@ async def process_referral_exchange(update: Update, context: ContextTypes.DEFAUL
 
 async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     is_subscribed = await check_channel_sub(user_id, context)
+    
     if not is_subscribed:
         await start(update, context)
         return
@@ -793,8 +878,8 @@ async def process_sub_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def games(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     is_subscribed = await check_channel_sub(user_id, context)
+    
     if not is_subscribed:
         await start(update, context)
         return
@@ -830,6 +915,7 @@ async def handle_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if random.random() < 0.5:
             minutes = 5
             add_subscription_time(user_id, minutes)
+            
             users = load_users()
             users[str(user_id)]['last_wheel'] = datetime.datetime.now().isoformat()
             save_users(users)
@@ -868,6 +954,7 @@ async def handle_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if PLAYERS_DB:
             account = random.choice(PLAYERS_DB)
+            
             users = load_users()
             users[str(user_id)]['last_random'] = datetime.datetime.now().isoformat()
             save_users(users)
@@ -878,6 +965,7 @@ async def handle_games(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔑 Пароль: {account['password']}\n"
                 f"🌐 IP: {account['ip']}"
             )
+            
             await update.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=games_keyboard())
         else:
             await update.message.reply_text(
@@ -905,11 +993,11 @@ async def process_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     user_id = update.effective_user.id
     code = update.message.text.strip()
+    
     promocodes = load_promocodes()
     
     if code in promocodes:
         promo = promocodes[code]
-        
         if promo['activations'] <= 0:
             await update.message.reply_text("❌ Этот промокод уже использован!", reply_markup=main_keyboard())
             return ConversationHandler.END
@@ -988,148 +1076,22 @@ async def admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         return
     
-    if context.args:
-        try:
-            if len(context.args) >= 2:
-                user_id = context.args[0]
-                sub_type = context.args[1]
-                users = load_users()
-                
-                if user_id not in users:
-                    users[user_id] = {'joined_date': datetime.datetime.now().isoformat()}
-                
-                if sub_type == 'forever':
-                    users[user_id]['subscription_end'] = 'forever'
-                    save_users(users)
-                    await update.message.reply_text(f"✅ Вечная подписка выдана пользователю {user_id}")
-                    try:
-                        await context.bot.send_message(
-                            int(user_id),
-                            f"🎉 Вам выдана вечная подписка!"
-                        )
-                    except:
-                        pass
-                
-                elif sub_type == 'days':
-                    if len(context.args) != 3:
-                        await update.message.reply_text("❌ Укажите количество дней!\nПример: /sub 123456789 days 7")
-                        return
-                    days = int(context.args[2])
-                    add_subscription_days(int(user_id), days)
-                    await update.message.reply_text(f"✅ {days} дней подписки выдано пользователю {user_id}")
-                    try:
-                        await context.bot.send_message(
-                            int(user_id),
-                            f"🎉 Вам выдано {days} дней подписки!"
-                        )
-                    except:
-                        pass
-                
-                elif sub_type == 'minutes':
-                    if len(context.args) != 3:
-                        await update.message.reply_text("❌ Укажите количество минут!\nПример: /sub 123456789 minutes 30")
-                        return
-                    minutes = int(context.args[2])
-                    add_subscription_time(int(user_id), minutes)
-                    await update.message.reply_text(f"✅ {minutes} минут подписки выдано пользователю {user_id}")
-                    try:
-                        await context.bot.send_message(
-                            int(user_id),
-                            f"🎉 Вам выдано {minutes} минут подписки!"
-                        )
-                    except:
-                        pass
-                else:
-                    await update.message.reply_text("❌ Неверный тип подписки! Используйте: days, minutes, forever")
-            else:
-                raise ValueError("Недостаточно аргументов")
-        except Exception as e:
-            await update.message.reply_text(f"❌ Ошибка: {e}")
-        return ConversationHandler.END
-    else:
-        text = (
-            f"👑 <b>Выдача подписки</b>\n\n"
-            f"Введи данные в формате:\n"
-            f"<code>ID_пользователя ТИП_ПОДПИСКИ ЗНАЧЕНИЕ</code>\n\n"
-            f"<b>Типы подписки:</b>\n"
-            f"• days - дни\n"
-            f"• minutes - минуты\n"
-            f"• forever - навсегда\n\n"
-            f"<i>Примеры:\n"
-            f"123456789 days 7\n"
-            f"123456789 minutes 30\n"
-            f"123456789 forever</i>"
-        )
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
-        return WAITING_ADMIN_SUB
-
-async def process_admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return ConversationHandler.END
+    text = (
+        f"👑 <b>Выдача подписки</b>\n\n"
+        f"Введи данные в формате:\n"
+        f"<code>ID_пользователя ТИП_ПОДПИСКИ ЗНАЧЕНИЕ</code>\n\n"
+        f"<b>Типы подписки:</b>\n"
+        f"• days - дни\n"
+        f"• minutes - минуты\n"
+        f"• forever - навсегда\n\n"
+        f"<i>Примеры:\n"
+        f"123456789 days 7\n"
+        f"123456789 minutes 30\n"
+        f"123456789 forever</i>"
+    )
     
-    try:
-        parts = update.message.text.split()
-        if len(parts) < 2:
-            raise ValueError("Неверный формат. Используйте: ID тип [значение]")
-        
-        user_id = parts[0]
-        sub_type = parts[1].lower()
-        users = load_users()
-        
-        if user_id not in users:
-            users[user_id] = {'joined_date': datetime.datetime.now().isoformat()}
-        
-        if sub_type == 'forever':
-            users[user_id]['subscription_end'] = 'forever'
-            save_users(users)
-            await update.message.reply_text(f"✅ Вечная подписка выдана пользователю {user_id}")
-            try:
-                await context.bot.send_message(
-                    int(user_id),
-                    f"🎉 Вам выдана вечная подписка!"
-                )
-            except:
-                pass
-        
-        elif sub_type == 'days':
-            if len(parts) != 3:
-                await update.message.reply_text("❌ Нужно указать количество дней!\nПример: 123456789 days 7")
-                return WAITING_ADMIN_SUB
-            days = int(parts[2])
-            add_subscription_days(int(user_id), days)
-            await update.message.reply_text(f"✅ {days} дней подписки выдано пользователю {user_id}")
-            try:
-                await context.bot.send_message(
-                    int(user_id),
-                    f"🎉 Вам выдано {days} дней подписки!"
-                )
-            except:
-                pass
-        
-        elif sub_type == 'minutes':
-            if len(parts) != 3:
-                await update.message.reply_text("❌ Нужно указать количество минут!\nПример: 123456789 minutes 30")
-                return WAITING_ADMIN_SUB
-            minutes = int(parts[2])
-            add_subscription_time(int(user_id), minutes)
-            await update.message.reply_text(f"✅ {minutes} минут подписки выдано пользователю {user_id}")
-            try:
-                await context.bot.send_message(
-                    int(user_id),
-                    f"🎉 Вам выдано {minutes} минут подписки!"
-                )
-            except:
-                pass
-        
-        else:
-            await update.message.reply_text("❌ Неверный тип подписки! Используйте: days, minutes, forever")
-            return WAITING_ADMIN_SUB
-    
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {e}")
-        return WAITING_ADMIN_SUB
-    
-    return ConversationHandler.END
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    return WAITING_ADMIN_SUB
 
 async def admin_sue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -1149,6 +1111,7 @@ async def admin_sue(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if remove_subscription(int(user_id)):
             await update.message.reply_text(f"✅ Подписка удалена у пользователя {user_id}")
+            
             try:
                 await context.bot.send_message(
                     int(user_id),
@@ -1158,9 +1121,75 @@ async def admin_sue(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
         else:
             await update.message.reply_text(f"❌ Пользователь {user_id} не найден в базе!")
-    
+            
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
+
+async def process_admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return ConversationHandler.END
+    
+    try:
+        parts = update.message.text.split()
+        if len(parts) < 2:
+            raise ValueError("Неверный формат")
+        
+        user_id = parts[0]
+        sub_type = parts[1]
+        
+        users = load_users()
+        if user_id not in users:
+            users[user_id] = {'joined_date': datetime.datetime.now().isoformat()}
+        
+        if sub_type == 'forever':
+            users[user_id]['subscription_end'] = 'forever'
+            save_users(users)
+            await update.message.reply_text(f"✅ Вечная подписка выдана пользователю {user_id}")
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"🎉 Вам выдана вечная подписка!"
+                )
+            except:
+                pass
+        
+        elif sub_type == 'days':
+            if len(parts) != 3:
+                raise ValueError("Нужно указать количество дней")
+            days = int(parts[2])
+            add_subscription_days(int(user_id), days)
+            await update.message.reply_text(f"✅ {days} дней подписки выдано пользователю {user_id}")
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"🎉 Вам выдано {days} дней подписки!"
+                )
+            except:
+                pass
+        
+        elif sub_type == 'minutes':
+            if len(parts) != 3:
+                raise ValueError("Нужно указать количество минут")
+            minutes = int(parts[2])
+            add_subscription_time(int(user_id), minutes)
+            await update.message.reply_text(f"✅ {minutes} минут подписки выдано пользователю {user_id}")
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"🎉 Вам выдано {minutes} минут подписки!"
+                )
+            except:
+                pass
+        
+        else:
+            await update.message.reply_text("❌ Неверный тип подписки!")
+            return WAITING_ADMIN_SUB
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+        return WAITING_ADMIN_SUB
+    
+    return ConversationHandler.END
 
 async def admin_create_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -1221,6 +1250,7 @@ async def process_promo_activations(update: Update, context: ContextTypes.DEFAUL
             f"Значение: {context.user_data['promo']['value']}\n"
             f"Активаций: {activations}"
         )
+        
         await update.message.reply_text(text, parse_mode=ParseMode.HTML)
         
     except:
@@ -1242,6 +1272,7 @@ async def process_rass(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = update.message.text
     users = load_users()
+    
     sent = 0
     failed = 0
     
@@ -1251,17 +1282,15 @@ async def process_rass(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(int(user_id), text)
             sent += 1
-            await asyncio.sleep(0.05)
         except:
             failed += 1
     
     await update.message.reply_text(f"✅ Рассылка завершена!\nОтправлено: {sent}\nОшибок: {failed}")
-    return ConversationHandler.END
 
 async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     is_subscribed = await check_channel_sub(user_id, context)
+    
     if not is_subscribed:
         await start(update, context)
         return
@@ -1338,7 +1367,7 @@ def main():
         states={
             WAITING_ADMIN_SUB: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_admin_sub)]
         },
-        fallbacks=[CommandHandler("start", start), CommandHandler("admin", admin)]
+        fallbacks=[CommandHandler("start", start)]
     )
     
     admin_rass_conv = ConversationHandler(
@@ -1346,7 +1375,7 @@ def main():
         states={
             WAITING_RASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_rass)]
         },
-        fallbacks=[CommandHandler("start", start), CommandHandler("admin", admin)]
+        fallbacks=[CommandHandler("start", start)]
     )
     
     admin_promo_conv = ConversationHandler(
@@ -1356,7 +1385,7 @@ def main():
             WAITING_PROMO_MINUTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_value)],
             WAITING_PROMO_ACTIVATIONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_activations)]
         },
-        fallbacks=[CommandHandler("start", start), CommandHandler("admin", admin)]
+        fallbacks=[CommandHandler("start", start)]
     )
     
     app.add_handler(CommandHandler("start", start))
@@ -1366,7 +1395,7 @@ def main():
     app.add_handler(admin_sub_conv)
     app.add_handler(admin_rass_conv)
     app.add_handler(admin_promo_conv)
-    app.add_handler(CallbackQueryHandler(check_sub_callback, pattern="^check_sub$"))
+    app.add_handler(CallbackQueryHandler(check_sub_after_callback, pattern="^check_sub_after$"))
     app.add_handler(search_conv)
     app.add_handler(ref_conv)
     app.add_handler(buy_conv)
@@ -1379,7 +1408,8 @@ def main():
     asyncio.set_event_loop(loop)
     loop.create_task(startup_notification(app))
     
-    print("🚀 Бот запущен с полным функционалом v0.9.5!")
+    print("🚀 Бот запущен с полным функционалом v0.9.6!")
+    print("✅ Рефералы засчитываются только после подписки на канал!")
     app.run_polling()
 
 if __name__ == "__main__":
