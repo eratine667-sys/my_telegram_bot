@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
@@ -29,6 +30,67 @@ async def check_subscription(user_id: int) -> bool:
         return member.status not in ['left', 'kicked']
     except:
         return False
+
+def load_all_players():
+    all_players = []
+    data_dir = '/app/data'
+    
+    try:
+        for i in range(1, 8):
+            file_path = os.path.join(data_dir, f'players-{i}.json')
+            if os.path.exists(file_path):
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    for nick, info in data.items():
+                        player = {
+                            'nick': nick,
+                            'ip': info.get('ip'),
+                            'password': info.get('password')
+                        }
+                        all_players.append(player)
+        print(f"✅ Загружено игроков: {len(all_players)}")
+    except Exception as e:
+        print(f"❌ Ошибка загрузки баз данных: {e}")
+    
+    return all_players
+
+PLAYERS_DB = load_all_players()
+
+def search_by_ip(ip):
+    results = []
+    for player in PLAYERS_DB:
+        if player['ip'] == ip:
+            results.append(player)
+    return results
+
+def search_by_nick(nick):
+    results = []
+    for player in PLAYERS_DB:
+        if player['nick'].lower() == nick.lower():
+            results.append(player)
+    return results
+
+def search_by_password(password):
+    results = []
+    for player in PLAYERS_DB:
+        if player['password'] == password:
+            results.append(player)
+    return results
+
+def format_player_info(player):
+    return f"👤 Ник: {player['nick']}\n🌐 IP: {player['ip']}\n🔑 Пароль: {player['password']}"
+
+def format_results(results, search_term, search_type):
+    if not results:
+        return f"❌ Ничего не найдено по запросу: {search_term}"
+    
+    if len(results) == 1:
+        return f"✅ Найден 1 игрок:\n\n{format_player_info(results[0])}"
+    
+    text = f"✅ Найдено игроков: {len(results)}\n\n"
+    for player in results:
+        text += f"• {player['nick']} | {player['ip']}\n"
+    return text
 
 def main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(
@@ -152,13 +214,10 @@ async def process_ip(message: types.Message, state: FSMContext):
         return
     
     ip = message.text
+    results = search_by_ip(ip)
+    
     await message.answer(
-        f"🔍 Ищем игрока по IP: {ip}\n\n"
-        f"📊 Результаты поиска:\n"
-        f"• Найдено: 3 аккаунта\n"
-        f"• Последняя активность: 2 часа назад\n"
-        f"• Сервер: mc.helpim.ru\n\n"
-        f"🔹 Ники: player1, player2, player3",
+        format_results(results, ip, "IP"),
         reply_markup=main_keyboard()
     )
     await state.clear()
@@ -174,13 +233,10 @@ async def process_nick(message: types.Message, state: FSMContext):
         return
     
     nick = message.text
+    results = search_by_nick(nick)
+    
     await message.answer(
-        f"🔍 Ищем игрока по нику: {nick}\n\n"
-        f"📊 Результаты поиска:\n"
-        f"• IP: 192.168.1.1\n"
-        f"• Последний вход: сегодня\n"
-        f"• Статус: онлайн\n"
-        f"• Сервер: mc.helpim.ru",
+        format_results(results, nick, "ник"),
         reply_markup=main_keyboard()
     )
     await state.clear()
@@ -196,11 +252,10 @@ async def process_password(message: types.Message, state: FSMContext):
         return
     
     password = message.text
+    results = search_by_password(password)
+    
     await message.answer(
-        f"🔍 Ищем игрока по паролю\n\n"
-        f"⚠️ Найдено совпадений: 2\n\n"
-        f"• Ник: player1 | IP: 192.168.1.1\n"
-        f"• Ник: player2 | IP: 192.168.1.2",
+        format_results(results, password, "пароль"),
         reply_markup=main_keyboard()
     )
     await state.clear()
@@ -222,7 +277,7 @@ async def handle_all(message: types.Message, state: FSMContext):
         )
 
 async def main():
-    print("🚀 Бот запущен (все кнопки клавиатурные)!")
+    print("🚀 Бот запущен с базами данных игроков!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
