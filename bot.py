@@ -15,7 +15,7 @@ dp = Dispatcher()
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer(f"👋 Привет, {message.from_user.first_name}!")
+    await message.answer(f"Иди нахуй, {message.from_user.first_name}! 🤬")
 
 @dp.message()
 async def echo(message: types.Message):
