@@ -439,7 +439,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             await update.message.reply_text(
-                f"🚀 Приветствуем в нашем боте v0.9.7!\n\n"
+                f"🚀 Приветствуем в нашем боте v0.9.8!\n\n"
                 f"📋 Доступные функции:\n"
                 f"• 🔍 Поиск игроков по базе данных\n"
                 f"• 👤 Личный профиль с статистикой\n"
@@ -452,7 +452,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
-                f"🚀 Приветствуем в нашем боте v0.9.7!\n\n"
+                f"🚀 Приветствуем в нашем боте v0.9.8!\n\n"
                 f"📋 Доступные функции:\n"
                 f"• 🔍 Поиск игроков по базе данных\n"
                 f"• 👤 Личный профиль с статистикой\n"
@@ -1334,7 +1334,7 @@ def main():
     asyncio.set_event_loop(loop)
     loop.create_task(startup_notification(app))
     
-    print("🚀 Бот запущен с полным функционалом v0.9.7!")
+    print("🚀 Бот запущен с полным функционалом v0.9.8!")
     print("✅ Рефералы засчитываются только после подписки на канал!")
     app.run_polling()
 
