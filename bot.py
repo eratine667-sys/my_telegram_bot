@@ -2,6 +2,7 @@ import os
 import json
 import datetime
 import random
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 from telegram.constants import ParseMode
@@ -214,6 +215,17 @@ def add_subscription_time(user_id, minutes):
 def add_subscription_days(user_id, days):
     add_subscription_time(user_id, days * 24 * 60)
 
+def remove_subscription(user_id):
+    users = load_users()
+    user_id_str = str(user_id)
+    
+    if user_id_str in users:
+        users[user_id_str]['subscription_end'] = None
+        users[user_id_str]['notified_expiry'] = False
+        save_users(users)
+        return True
+    return False
+
 def can_use_wheel(user_id):
     users = load_users()
     user_id_str = str(user_id)
@@ -399,33 +411,39 @@ def update_user_activity(user_id, username=None):
     save_users(users)
     return users[user_id_str]
 
-async def check_expiry_notifications(context: ContextTypes.DEFAULT_TYPE):
-    users = load_users()
-    now = datetime.datetime.now()
-    
-    for user_id_str, data in users.items():
-        expiry = data.get('subscription_end')
-        if expiry and expiry != 'forever' and not data.get('notified_expiry', False):
-            try:
-                expiry_date = datetime.datetime.fromisoformat(expiry)
-                delta = expiry_date - now
-                
-                if delta.total_seconds() <= 24 * 3600 and delta.total_seconds() > 0:
-                    hours = int(delta.seconds // 3600)
-                    minutes = int((delta.seconds % 3600) // 60)
-                    
-                    await context.bot.send_message(
-                        int(user_id_str),
-                        f"⚠️ <b>Внимание!</b>\n\n"
-                        f"Твоя подписка закончится через {hours} ч. {minutes} мин.\n"
-                        f"Продли подписку в магазине, чтобы не потерять доступ к поиску!",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    users[user_id_str]['notified_expiry'] = True
-                    save_users(users)
-            except:
-                pass
+async def check_expiry_notifications(app):
+    while True:
+        try:
+            users = load_users()
+            now = datetime.datetime.now()
+            
+            for user_id_str, data in users.items():
+                expiry = data.get('subscription_end')
+                if expiry and expiry != 'forever' and not data.get('notified_expiry', False):
+                    try:
+                        expiry_date = datetime.datetime.fromisoformat(expiry)
+                        delta = expiry_date - now
+                        
+                        if delta.total_seconds() <= 24 * 3600 and delta.total_seconds() > 0:
+                            hours = int(delta.seconds // 3600)
+                            minutes = int((delta.seconds % 3600) // 60)
+                            
+                            await app.bot.send_message(
+                                int(user_id_str),
+                                f"⚠️ <b>Внимание!</b>\n\n"
+                                f"Твоя подписка закончится через {hours} ч. {minutes} мин.\n"
+                                f"Продли подписку в магазине, чтобы не потерять доступ к поиску!",
+                                parse_mode=ParseMode.HTML
+                            )
+                            
+                            users[user_id_str]['notified_expiry'] = True
+                            save_users(users)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"Ошибка в проверке подписок: {e}")
+        
+        await asyncio.sleep(3600)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -468,7 +486,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del context.user_data['referred_by']
         
         await update.message.reply_text(
-            f"🚀 Приветствуем в нашем боте v0.9.2!\n\n"
+            f"🚀 Приветствуем в нашем боте v0.9.3!\n\n"
             f"Мы долго готовили данное обновление!\n\n"
             f"📋 Доступные функции:\n"
             f"• 🔍 Поиск игроков по базе данных\n"
@@ -491,7 +509,7 @@ async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if is_subscribed:
         await query.edit_message_text(
-            f"🚀 Приветствуем в нашем боте v0.9.2!\n\n"
+            f"🚀 Приветствуем в нашем боте v0.9.3!\n\n"
             f"Мы долго готовили данное обновление!\n\n"
             f"📋 Доступные функции:\n"
             f"• 🔍 Поиск игроков по базе данных\n"
@@ -1170,6 +1188,7 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Команды:</b>\n"
         f"• /stat - статистика бота\n"
         f"• /sub - выдать подписку\n"
+        f"• /sue [ID] - забрать подписку\n"
         f"• /rass - рассылка\n"
         f"• /cp - создать промокод"
     )
@@ -1228,6 +1247,38 @@ async def admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
     return WAITING_ADMIN_SUB
+
+async def admin_sue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ У тебя нет прав администратора!")
+        return
+    
+    try:
+        args = context.args
+        if not args:
+            await update.message.reply_text(
+                "❌ Укажи ID пользователя!\n\n"
+                "Пример: /sue 123456789"
+            )
+            return
+        
+        user_id = args[0]
+        
+        if remove_subscription(int(user_id)):
+            await update.message.reply_text(f"✅ Подписка удалена у пользователя {user_id}")
+            
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"⚠️ Ваша подписка была отозвана администратором!"
+                )
+            except:
+                pass
+        else:
+            await update.message.reply_text(f"❌ Пользователь {user_id} не найден в базе!")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
 async def process_admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
@@ -1426,14 +1477,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
     return ConversationHandler.END
 
-async def job_check_expiry(context: ContextTypes.DEFAULT_TYPE):
-    await check_expiry_notifications(context)
+async def startup_notification(app):
+    asyncio.create_task(check_expiry_notifications(app))
+    print("✅ Система уведомлений запущена!")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
-    
-    job_queue = app.job_queue
-    job_queue.run_repeating(job_check_expiry, interval=3600, first=10)
     
     search_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Text("🔍 Поиск игрока"), search_player)],
@@ -1499,6 +1548,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CommandHandler("stat", admin_stat))
+    app.add_handler(CommandHandler("sue", admin_sue))
     app.add_handler(admin_sub_conv)
     app.add_handler(admin_rass_conv)
     app.add_handler(admin_promo_conv)
@@ -1518,8 +1568,12 @@ def main():
     app.add_handler(MessageHandler(filters.Text("🎲 Рандомный аккаунт"), handle_games))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
     
-    print("🚀 Бот запущен с полным функционалом v0.9.2!")
-    print("✅ Добавлены новые функции: Избранное, Лидеры, Уведомления")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.create_task(startup_notification(app))
+    
+    print("🚀 Бот запущен с полным функционалом v0.9.3!")
+    print("✅ Добавлены новые функции: Избранное, Лидеры, Уведомления, /sue команда")
     app.run_polling()
 
 if __name__ == "__main__":
