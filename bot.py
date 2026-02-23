@@ -813,3 +813,346 @@ async def process_promo_code(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text += f"\n\n⏱ Текущий статус: {get_subscription_status(user_id)}"
         await update.message.reply_text(text, reply_markup=main_keyboard())
+    else:
+        await update.message.reply_text("❌ Неверный промокод!", reply_markup=main_keyboard())
+    
+    return ConversationHandler.END
+
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ У тебя нет прав администратора!")
+        return
+    
+    text = (
+        f"👑 <b>Админ панель</b>\n\n"
+        f"<b>Команды:</b>\n"
+        f"• /stat - статистика бота\n"
+        f"• /sub - выдать подписку\n"
+        f"• /rass - рассылка\n"
+        f"• /cp - создать промокод"
+    )
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+async def admin_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    users = load_users()
+    active_subs = 0
+    total_refs = 0
+    
+    for uid, data in users.items():
+        if check_sub_expiry(int(uid)):
+            active_subs += 1
+        total_refs += data.get('referrals', 0)
+    
+    promocodes = load_promocodes()
+    
+    text = (
+        f"📊 <b>Статистика бота</b>\n\n"
+        f"👥 Всего пользователей: {len(users)}\n"
+        f"✅ Активных подписок: {active_subs}\n"
+        f"👥 Всего рефералов: {total_refs}\n"
+        f"📁 Игроков в базе: {len(PLAYERS_DB)}\n"
+        f"🎫 Промокодов: {len(promocodes)}"
+    )
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+async def admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    text = (
+        f"👑 <b>Выдача подписки</b>\n\n"
+        f"Введи данные в формате:\n"
+        f"<code>ID_пользователя ТИП_ПОДПИСКИ ЗНАЧЕНИЕ</code>\n\n"
+        f"<b>Типы подписки:</b>\n"
+        f"• days - дни\n"
+        f"• minutes - минуты\n"
+        f"• forever - навсегда\n\n"
+        f"<i>Примеры:\n"
+        f"123456789 days 7\n"
+        f"123456789 minutes 30\n"
+        f"123456789 forever</i>"
+    )
+    
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+    return WAITING_ADMIN_SUB
+
+async def process_admin_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return ConversationHandler.END
+    
+    try:
+        parts = update.message.text.split()
+        if len(parts) < 2:
+            raise ValueError("Неверный формат")
+        
+        user_id = parts[0]
+        sub_type = parts[1]
+        
+        users = load_users()
+        if user_id not in users:
+            users[user_id] = {'joined_date': datetime.datetime.now().isoformat()}
+        
+        if sub_type == 'forever':
+            users[user_id]['subscription_end'] = 'forever'
+            save_users(users)
+            await update.message.reply_text(f"✅ Вечная подписка выдана пользователю {user_id}")
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"🎉 Вам выдана вечная подписка!"
+                )
+            except:
+                pass
+        
+        elif sub_type == 'days':
+            if len(parts) != 3:
+                raise ValueError("Нужно указать количество дней")
+            days = int(parts[2])
+            add_subscription_days(int(user_id), days)
+            await update.message.reply_text(f"✅ {days} дней подписки выдано пользователю {user_id}")
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"🎉 Вам выдано {days} дней подписки!"
+                )
+            except:
+                pass
+        
+        elif sub_type == 'minutes':
+            if len(parts) != 3:
+                raise ValueError("Нужно указать количество минут")
+            minutes = int(parts[2])
+            add_subscription_time(int(user_id), minutes)
+            await update.message.reply_text(f"✅ {minutes} минут подписки выдано пользователю {user_id}")
+            try:
+                await context.bot.send_message(
+                    int(user_id),
+                    f"🎉 Вам выдано {minutes} минут подписки!"
+                )
+            except:
+                pass
+        
+        else:
+            await update.message.reply_text("❌ Неверный тип подписки!")
+            return WAITING_ADMIN_SUB
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+        return WAITING_ADMIN_SUB
+    
+    return ConversationHandler.END
+
+async def admin_create_promo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    context.user_data['promo'] = {}
+    await update.message.reply_text(
+        "🎫 Создание промокода\n\n"
+        "Введи тип промокода (days/minutes):"
+    )
+    return WAITING_PROMO_DAYS
+
+async def process_promo_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower()
+    if text not in ['days', 'minutes']:
+        await update.message.reply_text("❌ Тип должен быть days или minutes!")
+        return WAITING_PROMO_DAYS
+    
+    context.user_data['promo']['type'] = text
+    await update.message.reply_text("Введи количество:")
+    return WAITING_PROMO_MINUTES
+
+async def process_promo_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        value = int(update.message.text)
+        if value <= 0:
+            raise ValueError
+        context.user_data['promo']['value'] = value
+        await update.message.reply_text("Введи количество активаций:")
+        return WAITING_PROMO_ACTIVATIONS
+    except:
+        await update.message.reply_text("❌ Введи положительное число!")
+        return WAITING_PROMO_MINUTES
+
+async def process_promo_activations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        activations = int(update.message.text)
+        if activations <= 0:
+            raise ValueError
+        
+        import random
+        import string
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        
+        promocodes = load_promocodes()
+        promocodes[code] = {
+            'type': context.user_data['promo']['type'],
+            'value': context.user_data['promo']['value'],
+            'activations': activations,
+            'used_by': []
+        }
+        save_promocodes(promocodes)
+        
+        text = (
+            f"✅ Промокод создан!\n\n"
+            f"Код: <code>{code}</code>\n"
+            f"Тип: {context.user_data['promo']['type']}\n"
+            f"Значение: {context.user_data['promo']['value']}\n"
+            f"Активаций: {activations}"
+        )
+        
+        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+        
+    except:
+        await update.message.reply_text("❌ Введи положительное число!")
+        return WAITING_PROMO_ACTIVATIONS
+    
+    return ConversationHandler.END
+
+async def admin_rass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return
+    
+    await update.message.reply_text("📨 Введи текст для рассылки:")
+    return WAITING_RASS
+
+async def process_rass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID:
+        return ConversationHandler.END
+    
+    text = update.message.text
+    users = load_users()
+    
+    sent = 0
+    failed = 0
+    
+    await update.message.reply_text(f"📨 Начинаю рассылку {len(users)} пользователям...")
+    
+    for user_id in users.keys():
+        try:
+            await context.bot.send_message(int(user_id), text)
+            sent += 1
+        except:
+            failed += 1
+    
+    await update.message.reply_text(f"✅ Рассылка завершена!\nОтправлено: {sent}\nОшибок: {failed}")
+
+async def handle_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_subscribed = await check_channel_sub(user_id, context)
+    
+    if not is_subscribed:
+        await start(update, context)
+        return
+    
+    text = update.message.text
+    
+    if text == "👤 Мой профиль":
+        await my_profile(update, context)
+    elif text == "💰 Заработать":
+        await earn(update, context)
+    elif text == "🛒 Магазин":
+        await shop(update, context)
+    elif text == "🎮 Игры":
+        await games(update, context)
+    elif text == "🔍 Поиск игрока":
+        await search_player(update, context)
+    elif text == "🔄 Обменять рефералов":
+        await exchange_refs(update, context)
+    else:
+        await update.message.reply_text("👇 Используй кнопки в меню", reply_markup=main_keyboard())
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔙 Главное меню:", reply_markup=main_keyboard())
+    return ConversationHandler.END
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    search_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text("🔍 Поиск игрока"), search_player)],
+        states={
+            WAITING_SEARCH_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search_type)],
+            WAITING_IP: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_ip)],
+            WAITING_NICK: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_nick)],
+            WAITING_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_password)],
+        },
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Text("🔙 Отмена"), cancel)]
+    )
+    
+    ref_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Text("🔄 Обменять рефералов"), exchange_refs)],
+        states={
+            WAITING_REFERRAL_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_referral_exchange)]
+        },
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Text("🔙 Отмена"), cancel)]
+    )
+    
+    buy_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(shop_callback, pattern="^buy_sub$")],
+        states={
+            WAITING_SUB_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_sub_days)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    promo_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(games_callback, pattern="^promo$")],
+        states={
+            WAITING_PROMO_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_code)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    admin_sub_conv = ConversationHandler(
+        entry_points=[CommandHandler("sub", admin_sub)],
+        states={
+            WAITING_ADMIN_SUB: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_admin_sub)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    admin_rass_conv = ConversationHandler(
+        entry_points=[CommandHandler("rass", admin_rass)],
+        states={
+            WAITING_RASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_rass)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    admin_promo_conv = ConversationHandler(
+        entry_points=[CommandHandler("cp", admin_create_promo)],
+        states={
+            WAITING_PROMO_DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_type)],
+            WAITING_PROMO_MINUTES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_value)],
+            WAITING_PROMO_ACTIVATIONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_promo_activations)]
+        },
+        fallbacks=[CommandHandler("start", start)]
+    )
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CommandHandler("stat", admin_stat))
+    app.add_handler(admin_sub_conv)
+    app.add_handler(admin_rass_conv)
+    app.add_handler(admin_promo_conv)
+    app.add_handler(CallbackQueryHandler(check_sub_callback, pattern="^check_sub$"))
+    app.add_handler(CallbackQueryHandler(games_callback, pattern="^(wheel|random_account|promo|back_to_games)$"))
+    app.add_handler(CallbackQueryHandler(shop_callback, pattern="^(buy_sub|back_to_shop)$"))
+    app.add_handler(search_conv)
+    app.add_handler(ref_conv)
+    app.add_handler(buy_conv)
+    app.add_handler(promo_conv)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
+    
+    print("🚀 Бот запущен с полным функционалом v0.9.0!")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
