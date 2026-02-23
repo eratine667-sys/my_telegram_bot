@@ -401,12 +401,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID[1:]}")],
             [InlineKeyboardButton("✅ Я подписался", callback_data="check_sub")]
         ])
-        await update.message.reply_text(
-            f"👋 Привет, {first_name}!\n\n"
-            f"🔒 Для доступа к боту подпишись на канал: {CHANNEL_ID}\n\n"
-            f"После подписки нажми кнопку ниже:",
-            reply_markup=keyboard
-        )
+        
+        if update.message:
+            await update.message.reply_text(
+                f"👋 Привет, {first_name}!\n\n"
+                f"🔒 Для доступа к боту подпишись на канал: {CHANNEL_ID}\n\n"
+                f"После подписки нажми кнопку ниже:",
+                reply_markup=keyboard
+            )
+        else:
+            await update.callback_query.message.reply_text(
+                f"👋 Привет, {first_name}!\n\n"
+                f"🔒 Для доступа к боту подпишись на канал: {CHANNEL_ID}\n\n"
+                f"После подписки нажми кнопку ниже:",
+                reply_markup=keyboard
+            )
     else:
         if 'referred_by' in context.user_data:
             referrer_id = context.user_data['referred_by']
@@ -423,19 +432,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
             del context.user_data['referred_by']
         
-        await update.message.reply_text(
-            f"🚀 Приветствуем в нашем боте v0.9.5!\n\n"
-            f"Мы долго готовили данное обновление!\n\n"
-            f"📋 Доступные функции:\n"
-            f"• 🔍 Поиск игроков по базе данных\n"
-            f"• 👤 Личный профиль с статистикой\n"
-            f"• 💰 Заработок подписки за рефералов\n"
-            f"• 🛒 Магазин подписок\n"
-            f"• 🎮 Игры и развлечения\n"
-            f"• 🏆 Лидеры бота\n\n"
-            f"Выбирай функцию кнопками ниже:",
-            reply_markup=main_keyboard()
-        )
+        if update.message:
+            await update.message.reply_text(
+                f"🚀 Приветствуем в нашем боте v0.9.5!\n\n"
+                f"Мы долго готовили данное обновление!\n\n"
+                f"📋 Доступные функции:\n"
+                f"• 🔍 Поиск игроков по базе данных\n"
+                f"• 👤 Личный профиль с статистикой\n"
+                f"• 💰 Заработок подписки за рефералов\n"
+                f"• 🛒 Магазин подписок\n"
+                f"• 🎮 Игры и развлечения\n"
+                f"• 🏆 Лидеры бота\n\n"
+                f"Выбирай функцию кнопками ниже:",
+                reply_markup=main_keyboard()
+            )
     return ConversationHandler.END
 
 async def check_sub_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
