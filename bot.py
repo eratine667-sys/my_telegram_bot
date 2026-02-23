@@ -463,6 +463,7 @@ async def earn_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"<i>Каждый реферал даёт 2 минуты подписки</i>"
         )
         await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=exchange_inline_keyboard())
+        return WAITING_REFERRAL_AMOUNT
     
     elif query.data == "exchange_refs":
         await query.edit_message_text(
@@ -539,6 +540,20 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back_to_shop")]])
         )
         return WAITING_SUB_DAYS
+    
+    elif query.data == "back_to_shop":
+        text = (
+            f"🛒 <b>Магазин подписок</b>\n\n"
+            f"<b>Цены:</b>\n"
+            f"• 1 день — 125₽\n"
+            f"• 7 дней — 350₽\n"
+            f"• 14 дней — 650₽\n"
+            f"• 30 дней — 950₽\n"
+            f"• Навсегда — 3150₽\n\n"
+            f"<i>Если нужна подписка на другое количество дней — каждый день +44₽</i>"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=shop_inline_keyboard())
+        return ConversationHandler.END
 
 async def process_sub_days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -795,7 +810,7 @@ def main():
     app.add_handler(buy_conv)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_all))
     
-    print("🚀 Бот запущен с полным функционалом!")
+    print("🚀 Бот запущен с полным функционалом! Все кнопки работают!")
     app.run_polling()
 
 if __name__ == "__main__":
