@@ -176,6 +176,7 @@ def add_subscription_time(user_id, minutes):
             'joined_date': datetime.datetime.now().isoformat(),
             'subscription_end': None,
             'referrals': 0,
+            'total_referrals': 0,
             'referred_by': None,
             'last_wheel': None,
             'last_random': None,
@@ -255,7 +256,7 @@ def get_top_by_referrals(limit=10):
     for user_id, data in users.items():
         top_list.append({
             'user_id': user_id,
-            'referrals': data.get('referrals', 0),
+            'referrals': data.get('total_referrals', 0),
             'username': data.get('username', 'нет')
         })
     top_list.sort(key=lambda x: x['referrals'], reverse=True)
@@ -335,6 +336,7 @@ def update_user_activity(user_id, username=None):
             'joined_date': datetime.datetime.now().isoformat(),
             'subscription_end': None,
             'referrals': 0,
+            'total_referrals': 0,
             'referred_by': None,
             'username': username,
             'first_seen': datetime.datetime.now().isoformat(),
@@ -419,16 +421,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if 'referred_by' in context.user_data:
                 referrer_id = context.user_data['referred_by']
-                if str(referrer_id) in users:
-                    users[str(referrer_id)]['referrals'] = users[str(referrer_id)].get('referrals', 0) + 1
-                    save_users(users)
-                    try:
-                        await context.bot.send_message(
-                            int(referrer_id),
-                            f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
-                        )
-                    except:
-                        pass
+                referrer_id_str = str(referrer_id)
+                
+                if referrer_id_str in users:
+                    invited_users = users[referrer_id_str].get('invited_users', [])
+                    
+                    if user_id_str not in invited_users:
+                        invited_users.append(user_id_str)
+                        users[referrer_id_str]['invited_users'] = invited_users
+                        users[referrer_id_str]['referrals'] = users[referrer_id_str].get('referrals', 0) + 1
+                        users[referrer_id_str]['total_referrals'] = users[referrer_id_str].get('total_referrals', 0) + 1
+                        save_users(users)
+                        
+                        try:
+                            await context.bot.send_message(
+                                int(referrer_id),
+                                f"🎉 У вас новый реферал! Всего приглашено: {users[referrer_id_str]['total_referrals']}"
+                            )
+                        except:
+                            pass
+                
                 del context.user_data['referred_by']
             
             save_users(users)
@@ -490,13 +502,17 @@ async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
+    available_refs = user_data.get('referrals', 0)
+    total_refs = user_data.get('total_referrals', available_refs)
+    
     text = (
         f"👤 <b>Твой профиль</b>\n\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"👤 Username: @{username if username else 'нет'}\n"
         f"📅 В боте: {days_in_bot} дн.\n"
         f"🎫 Подписка: {sub_status}\n"
-        f"👥 Рефералов: {user_data.get('referrals', 0)}\n"
+        f"👥 Рефералов всего: {total_refs}\n"
+        f"💎 Доступно для обмена: {available_refs}\n"
         f"🔍 Поисков: {user_data.get('search_count', 0)}\n\n"
         f"🔗 Твоя реферальная ссылка:\n"
         f"<code>{ref_link}</code>"
@@ -677,15 +693,17 @@ async def earn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     users = load_users()
     user_data = users.get(str(user_id), {})
-    referrals = user_data.get('referrals', 0)
-    bonus = calculate_ref_bonus(referrals)
+    available_refs = user_data.get('referrals', 0)
+    total_refs = user_data.get('total_referrals', available_refs)
+    bonus = calculate_ref_bonus(available_refs)
     
     bot_username = (await context.bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={user_id}"
     
     text = (
         f"💰 <b>Заработок подписки</b>\n\n"
-        f"👥 Твои рефералы: {referrals}\n"
+        f"👥 Рефералов всего: {total_refs}\n"
+        f"💎 Доступно для обмена: {available_refs}\n"
         f"🎁 Ты можешь получить: {bonus}\n\n"
         f"<b>Тарифы обмена:</b>\n"
         f"• 10 рефералов → 15 минут\n"
@@ -717,19 +735,22 @@ async def process_referral_exchange(update: Update, context: ContextTypes.DEFAUL
         user_id = update.effective_user.id
         users = load_users()
         user_data = users.get(str(user_id), {})
-        referrals = user_data.get('referrals', 0)
+        available_refs = user_data.get('referrals', 0)
+        total_refs = user_data.get('total_referrals', available_refs)
         
-        if amount <= 0 or amount > referrals:
-            await update.message.reply_text(f"❌ У тебя только {referrals} рефералов!", reply_markup=main_keyboard())
+        if amount <= 0 or amount > available_refs:
+            await update.message.reply_text(f"❌ У тебя только {available_refs} рефералов для обмена!", reply_markup=main_keyboard())
             return ConversationHandler.END
         
         minutes = amount * 2
-        users[str(user_id)]['referrals'] = referrals - amount
+        users[str(user_id)]['referrals'] = available_refs - amount
         
         add_subscription_time(user_id, minutes)
         
         await update.message.reply_text(
             f"✅ Успешно обменяно {amount} рефералов на {minutes} минут подписки!\n\n"
+            f"📊 Всего приглашено: {total_refs}\n"
+            f"💎 Осталось для обмена: {users[str(user_id)]['referrals']}\n"
             f"⏱ Текущий статус: {get_subscription_status(user_id)}",
             reply_markup=main_keyboard()
         )
@@ -982,7 +1003,7 @@ async def admin_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid, data in users.items():
         if check_sub_expiry(int(uid)):
             active_subs += 1
-        total_refs += data.get('referrals', 0)
+        total_refs += data.get('total_referrals', data.get('referrals', 0))
         total_searches += data.get('search_count', 0)
     
     promocodes = load_promocodes()
