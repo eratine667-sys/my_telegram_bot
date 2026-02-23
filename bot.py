@@ -400,15 +400,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not is_subscribed:
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID[1:]}")],
-            [InlineKeyboardButton("🔄 Проверить подписку", callback_data="check_sub_after")]
+            [InlineKeyboardButton("📢 Подписаться на канал", url=f"https://t.me/{CHANNEL_ID[1:]}")]
         ])
         await update.message.reply_text(
             f"👋 Привет, {first_name}!\n\n"
             f"🔒 Для доступа к боту нужно подписаться на канал: {CHANNEL_ID}\n\n"
-            f"1. Нажми кнопку 'Подписаться на канал'\n"
-            f"2. Подпишись\n"
-            f"3. Нажми 'Проверить подписку'\n\n"
+            f"1. Нажми кнопку ниже и подпишись\n"
+            f"2. После подписки снова напиши /start\n\n"
             f"✅ Только после подписки засчитается реферал и откроется весь функционал!",
             reply_markup=keyboard
         )
@@ -437,13 +435,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await update.message.reply_text(
                 f"✅ Спасибо за подписку, {first_name}!\n\n"
-                f"🚀 Весь функционал бота теперь доступен!\n"
-                f"📋 Нажми /start чтобы начать"
+                f"🚀 Весь функционал бота теперь доступен!"
             )
             
             await update.message.reply_text(
-                f"🚀 Приветствуем в нашем боте v0.9.6!\n\n"
-                f"Мы долго готовили данное обновление!\n\n"
+                f"🚀 Приветствуем в нашем боте v0.9.7!\n\n"
                 f"📋 Доступные функции:\n"
                 f"• 🔍 Поиск игроков по базе данных\n"
                 f"• 👤 Личный профиль с статистикой\n"
@@ -456,7 +452,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         else:
             await update.message.reply_text(
-                f"🚀 Приветствуем в нашем боте v0.9.6!\n\n"
+                f"🚀 Приветствуем в нашем боте v0.9.7!\n\n"
                 f"📋 Доступные функции:\n"
                 f"• 🔍 Поиск игроков по базе данных\n"
                 f"• 👤 Личный профиль с статистикой\n"
@@ -468,75 +464,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=main_keyboard()
             )
     return ConversationHandler.END
-
-async def check_sub_after_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    first_name = query.from_user.first_name
-    username = query.from_user.username
-    
-    is_subscribed = await check_channel_sub(user_id, context)
-    
-    if is_subscribed:
-        users = load_users()
-        user_id_str = str(user_id)
-        
-        if user_id_str not in users:
-            users[user_id_str] = {
-                'joined_date': datetime.datetime.now().isoformat(),
-                'subscription_end': None,
-                'referrals': 0,
-                'referred_by': None,
-                'username': username,
-                'first_seen': datetime.datetime.now().isoformat(),
-                'last_wheel': None,
-                'last_random': None,
-                'search_count': 0,
-                'notified_expiry': False,
-                'subscribed': True
-            }
-        else:
-            users[user_id_str]['subscribed'] = True
-            users[user_id_str]['last_seen'] = datetime.datetime.now().isoformat()
-            if username:
-                users[user_id_str]['username'] = username
-        
-        if 'referred_by' in context.user_data:
-            referrer_id = context.user_data['referred_by']
-            if str(referrer_id) in users:
-                users[str(referrer_id)]['referrals'] = users[str(referrer_id)].get('referrals', 0) + 1
-                try:
-                    await context.bot.send_message(
-                        int(referrer_id),
-                        f"🎉 У вас новый реферал! Теперь у вас {users[str(referrer_id)]['referrals']} рефералов."
-                    )
-                except:
-                    pass
-            del context.user_data['referred_by']
-        
-        save_users(users)
-        
-        await query.edit_message_text(
-            f"✅ Спасибо за подписку, {first_name}!\n\n"
-            f"🚀 Весь функционал бота теперь доступен!\n"
-            f"📋 Нажми /start чтобы начать"
-        )
-        
-        await query.message.reply_text(
-            f"🚀 Приветствуем в нашем боте v0.9.6!\n\n"
-            f"📋 Доступные функции:\n"
-            f"• 🔍 Поиск игроков по базе данных\n"
-            f"• 👤 Личный профиль с статистикой\n"
-            f"• 💰 Заработок подписки за рефералов\n"
-            f"• 🛒 Магазин подписок\n"
-            f"• 🎮 Игры и развлечения\n"
-            f"• 🏆 Лидеры бота\n\n"
-            f"Выбирай функцию кнопками ниже:",
-            reply_markup=main_keyboard()
-        )
-    else:
-        await query.answer("❌ Ты ещё не подписался! Подпишись и нажми снова.", show_alert=True)
 
 async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1395,7 +1322,6 @@ def main():
     app.add_handler(admin_sub_conv)
     app.add_handler(admin_rass_conv)
     app.add_handler(admin_promo_conv)
-    app.add_handler(CallbackQueryHandler(check_sub_after_callback, pattern="^check_sub_after$"))
     app.add_handler(search_conv)
     app.add_handler(ref_conv)
     app.add_handler(buy_conv)
@@ -1408,7 +1334,7 @@ def main():
     asyncio.set_event_loop(loop)
     loop.create_task(startup_notification(app))
     
-    print("🚀 Бот запущен с полным функционалом v0.9.6!")
+    print("🚀 Бот запущен с полным функционалом v0.9.7!")
     print("✅ Рефералы засчитываются только после подписки на канал!")
     app.run_polling()
 
