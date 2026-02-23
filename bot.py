@@ -33,12 +33,11 @@ async def cmd_start(message: types.Message):
             ]
         )
         await message.answer(
-            f"👋 Привет, {message.from_user.first_name}!\n\n"
-            "Для использования бота необходимо подписаться на наш канал:",
+            f"👋 Привет, {message.from_user.first_name}!\n\nДля использования бота необходимо подписаться на наш канал:",
             reply_markup=keyboard
         )
     else:
-        await message.answer(f"✅ Спасибо за подписку, {message.from_user.first_name}! Теперь ты можешь пользоваться ботом.")
+        await message.answer(f"✅ Спасибо за подписку, {message.from_user.first_name}!")
 
 @dp.callback_query(lambda c: c.data == "check_sub")
 async def process_sub_check(callback: types.CallbackQuery):
@@ -47,10 +46,10 @@ async def process_sub_check(callback: types.CallbackQuery):
     
     if is_subscribed:
         await callback.message.edit_text(
-            f"✅ Отлично, {callback.from_user.first_name}! Подписка подтверждена. Теперь ты можешь пользоваться ботом."
+            f"✅ Отлично, {callback.from_user.first_name}! Подписка подтверждена."
         )
     else:
-        await callback.answer("❌ Ты ещё не подписался на канал! Подпишись и нажми кнопку снова.", show_alert=True)
+        await callback.answer("❌ Ты ещё не подписался!", show_alert=True)
 
 @dp.message()
 async def handle_all(message: types.Message):
@@ -65,15 +64,12 @@ async def handle_all(message: types.Message):
             ]
         )
         await message.answer(
-            "❌ Ты не подписан на канал!\n\n"
-            "Чтобы пользоваться ботом, подпишись:",
+            "❌ Ты не подписан на канал!\n\nЧтобы пользоваться ботом, подпишись:",
             reply_markup=keyboard
         )
-    else:
-        await message.answer(f"Ты написал: {message.text}")
 
 async def main():
-    print("🚀 Бот запущен и проверяет подписку на канал!")
+    print("🚀 Бот запущен и проверяет подписку!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
