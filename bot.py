@@ -77,21 +77,6 @@ def search_by_password(password):
             results.append(player)
     return results
 
-def format_player_info(player):
-    return f"👤 Ник: {player['nick']}\n🌐 IP: {player['ip']}\n🔑 Пароль: {player['password']}"
-
-def format_results(results, search_term, search_type):
-    if not results:
-        return f"❌ Ничего не найдено по запросу: {search_term}"
-    
-    if len(results) == 1:
-        return f"✅ Найден 1 игрок:\n\n{format_player_info(results[0])}"
-    
-    text = f"✅ Найдено игроков: {len(results)}\n\n"
-    for player in results:
-        text += f"• {player['nick']} | {player['ip']}\n"
-    return text
-
 def main_keyboard():
     keyboard = types.ReplyKeyboardMarkup(
         keyboard=[
@@ -171,21 +156,21 @@ async def handle_search_type(message: types.Message, state: FSMContext):
     
     if text == "🌐 Поиск по IP":
         await message.answer(
-            "🌐 Введите IP-адрес для поиска:",
+            "🌐 Введи IP:",
             reply_markup=cancel_keyboard()
         )
         await state.set_state(SearchStates.waiting_for_ip)
     
     elif text == "👤 Поиск по нику":
         await message.answer(
-            "👤 Введите ник игрока для поиска:",
+            "👤 Введи ник:",
             reply_markup=cancel_keyboard()
         )
         await state.set_state(SearchStates.waiting_for_nick)
     
     elif text == "🔑 Поиск по паролю":
         await message.answer(
-            "🔑 Введите пароль для поиска:",
+            "🔑 Введи пароль:",
             reply_markup=cancel_keyboard()
         )
         await state.set_state(SearchStates.waiting_for_password)
@@ -199,7 +184,7 @@ async def handle_search_type(message: types.Message, state: FSMContext):
     
     else:
         await message.answer(
-            "❌ Используй кнопки меню!",
+            "❌ Используй кнопки!",
             reply_markup=search_type_keyboard()
         )
 
@@ -207,57 +192,61 @@ async def handle_search_type(message: types.Message, state: FSMContext):
 async def process_ip(message: types.Message, state: FSMContext):
     if message.text == "🔙 Отмена":
         await state.clear()
-        await message.answer(
-            "🔙 Главное меню:",
-            reply_markup=main_keyboard()
-        )
+        await message.answer("🔙 Главное меню:", reply_markup=main_keyboard())
         return
     
     ip = message.text
     results = search_by_ip(ip)
     
-    await message.answer(
-        format_results(results, ip, "IP"),
-        reply_markup=main_keyboard()
-    )
+    if not results:
+        await message.answer(f"❌ На IP {ip} ничего нет", reply_markup=main_keyboard())
+    else:
+        text = f"🌐 IP: {ip}\n\n"
+        for player in results:
+            text += f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}\n\n"
+        await message.answer(text, reply_markup=main_keyboard())
+    
     await state.clear()
 
 @dp.message(SearchStates.waiting_for_nick)
 async def process_nick(message: types.Message, state: FSMContext):
     if message.text == "🔙 Отмена":
         await state.clear()
-        await message.answer(
-            "🔙 Главное меню:",
-            reply_markup=main_keyboard()
-        )
+        await message.answer("🔙 Главное меню:", reply_markup=main_keyboard())
         return
     
     nick = message.text
     results = search_by_nick(nick)
     
-    await message.answer(
-        format_results(results, nick, "ник"),
-        reply_markup=main_keyboard()
-    )
+    if not results:
+        await message.answer(f"❌ Ник {nick} не найден", reply_markup=main_keyboard())
+    else:
+        player = results[0]
+        await message.answer(
+            f"👤 Ник: {player['nick']}\n🔑 Пароль: {player['password']}",
+            reply_markup=main_keyboard()
+        )
+    
     await state.clear()
 
 @dp.message(SearchStates.waiting_for_password)
 async def process_password(message: types.Message, state: FSMContext):
     if message.text == "🔙 Отмена":
         await state.clear()
-        await message.answer(
-            "🔙 Главное меню:",
-            reply_markup=main_keyboard()
-        )
+        await message.answer("🔙 Главное меню:", reply_markup=main_keyboard())
         return
     
     password = message.text
     results = search_by_password(password)
     
-    await message.answer(
-        format_results(results, password, "пароль"),
-        reply_markup=main_keyboard()
-    )
+    if not results:
+        await message.answer(f"❌ Пароль {password} не найден", reply_markup=main_keyboard())
+    else:
+        text = f"🔑 Пароль: {password}\n\n"
+        for player in results:
+            text += f"👤 Ник: {player['nick']}\n"
+        await message.answer(text, reply_markup=main_keyboard())
+    
     await state.clear()
 
 @dp.message()
@@ -271,13 +260,10 @@ async def handle_all(message: types.Message, state: FSMContext):
     
     current_state = await state.get_state()
     if current_state is None:
-        await message.answer(
-            "👇 Используй кнопки в меню",
-            reply_markup=main_keyboard()
-        )
+        await message.answer("👇 Используй кнопки", reply_markup=main_keyboard())
 
 async def main():
-    print("🚀 Бот запущен с базами данных игроков!")
+    print("🚀 Бот запущен")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
